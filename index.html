@@ -1,59 +1,119 @@
 <!DOCTYPE html>
 <html lang="uz"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Bron</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;700&display=swap" rel="stylesheet">
 <style>
-body{margin:0;padding:16px;font-family:system-ui,sans-serif;background:var(--tg-theme-bg-color,#fff);color:var(--tg-theme-text-color,#000)}
-h3{margin:18px 0 8px}
-.row{display:flex;gap:8px;flex-wrap:wrap}
-button,input,select{font-size:16px;padding:10px 14px;border-radius:10px;border:1px solid #8885;background:none;color:inherit}
-.sel{background:var(--tg-theme-button-color,#2481cc);color:var(--tg-theme-button-text-color,#fff)}
-.pc{width:56px;padding:12px 0}
-.pc:disabled{opacity:.3;text-decoration:line-through}
-#go{width:100%;margin-top:20px;background:var(--tg-theme-button-color,#2481cc);color:var(--tg-theme-button-text-color,#fff)}
-#msg{margin-top:12px;text-align:center}
+:root{--bg:#120d24;--card:#1c1536;--line:#31265e;--txt:#f1ecff;--mut:#8f84bd;--pink:#ff2e93;--cyan:#27e1ff;--head:'Chakra Petch',system-ui,sans-serif}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{margin:0;padding:18px 16px 130px;color:var(--txt);font:15px system-ui,sans-serif;background:radial-gradient(700px 380px at 85% -8%,#4a1b7d 0,transparent 65%),radial-gradient(500px 300px at -10% 30%,#10315a 0,transparent 60%),var(--bg);min-height:100vh}
+h1{font:700 30px var(--head);margin:2px 0 4px;letter-spacing:.2px}
+.sub{color:var(--mut);margin:0 0 6px}
+h2{font:700 17px var(--head);margin:24px 0 10px}
+.zones{display:grid;grid-template-columns:repeat(auto-fit,minmax(104px,1fr));gap:10px}
+.zone{background:var(--card);border:1.5px solid var(--line);border-radius:16px;padding:14px 12px;text-align:left;color:inherit;font:inherit;cursor:pointer;transition:.15s}
+.zone .ic{font-size:26px;display:block;margin-bottom:8px}
+.zone b{font:700 17px var(--head);display:block}
+.zone .pr{color:var(--mut);font-size:13px;margin-top:2px;display:block}
+.zone .fr{color:var(--cyan);font-size:13px;margin-top:8px;display:block}
+.zone .fr.no{color:var(--pink)}
+.zone.on{border-color:var(--pink);background:linear-gradient(160deg,#3a1450,#1c1536);box-shadow:0 0 0 1px var(--pink),0 8px 28px -8px var(--pink)}
+.chips{display:flex;gap:8px;overflow-x:auto;scrollbar-width:none;margin:0 -16px;padding:2px 16px 4px}
+.chips::-webkit-scrollbar{display:none}
+.chip{flex:none;min-width:62px;background:var(--card);border:1.5px solid var(--line);color:var(--txt);border-radius:12px;padding:10px 14px;font:600 15px var(--head);cursor:pointer;text-align:center}
+.chip small{display:block;font:12px system-ui;color:var(--mut);margin-top:2px}
+.chip.on{background:linear-gradient(135deg,var(--pink),#9b35ff);border-color:transparent}
+.chip.on small{color:#ffe3f1}
+.seats{display:grid;grid-template-columns:repeat(auto-fill,minmax(68px,1fr));gap:12px 10px}
+.seat{position:relative;height:62px;background:linear-gradient(180deg,#1f1a45,#171236);border:1.5px solid #2f6f86;border-radius:9px 9px 6px 6px;color:var(--txt);font:700 19px var(--head);cursor:pointer;margin-bottom:8px}
+.seat::after{content:"";position:absolute;left:50%;bottom:-9px;width:26px;height:5px;margin-left:-13px;background:#2f6f86;border-radius:0 0 4px 4px}
+.seat.on{border-color:var(--pink);background:linear-gradient(180deg,#5b1b66,#2b1049);box-shadow:0 0 18px -2px var(--pink)}
+.seat.on::after{background:var(--pink)}
+.seat:disabled{border:1.5px dashed var(--line);background:none;color:#5b5285;cursor:not-allowed}
+.seat:disabled::after{background:var(--line)}
+.seat small{display:block;font:11px system-ui;margin-top:1px}
+.hint{color:var(--mut);padding:18px 0}
+.bar{position:fixed;left:0;right:0;bottom:0;display:flex;align-items:center;gap:12px;padding:12px 16px calc(12px + env(safe-area-inset-bottom,0px));background:rgba(18,13,36,.92);backdrop-filter:blur(14px);border-top:1px solid var(--line)}
+.sum{flex:1;min-width:0;line-height:1.3}
+.sum b{font:700 16px var(--head);display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sum span{color:var(--mut);font-size:13px}
+#go{flex:none;border:0;border-radius:14px;padding:14px 20px;font:700 16px var(--head);color:#fff;background:linear-gradient(135deg,var(--pink),#9b35ff);box-shadow:0 8px 24px -8px var(--pink);cursor:pointer}
+#go:disabled{background:var(--card);color:var(--mut);box-shadow:none}
+#err{position:fixed;top:12px;left:16px;right:16px;background:#4a0f2a;border:1px solid var(--pink);border-radius:12px;padding:12px 14px;display:none;z-index:5}
+#ok{position:fixed;inset:0;background:var(--bg);display:none;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:30px;z-index:9}
+#ok svg{width:96px;height:96px;margin-bottom:18px}
+#ok circle{stroke:var(--cyan);stroke-width:3;fill:none;stroke-dasharray:166;stroke-dashoffset:166;animation:d .6s ease forwards}
+#ok path{stroke:var(--cyan);stroke-width:4;fill:none;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:48;stroke-dashoffset:48;animation:d .4s .5s ease forwards}
+@keyframes d{to{stroke-dashoffset:0}}
+#ok h2{font-size:24px;margin:0 0 8px}
+:focus-visible{outline:2px solid var(--cyan);outline-offset:2px}
 </style></head><body>
-<h2>🎮 Bron qilish</h2>
-<h3>Zona</h3><div class="row" id="zones"></div>
-<h3>Sana va vaqt</h3>
-<div class="row"><input type="date" id="date"><input type="time" id="time" step="1800">
-<select id="hours"></select></div>
-<h3>Kompyuter</h3><div class="row" id="pcs"></div>
-<div id="price"></div>
-<button id="go">Bron qilish</button><div id="msg"></div>
+<h1>Joy band qiling</h1>
+<p class="sub">Zona, vaqt va kompyuterni tanlang</p>
+<h2>Zona</h2><div class="zones" id="zones"></div>
+<h2>Kun</h2><div class="chips" id="dates"></div>
+<h2>Boshlanish vaqti</h2><div class="chips" id="times"></div>
+<h2>Davomiyligi</h2><div class="chips" id="hours"></div>
+<h2>Kompyuter</h2><div class="seats" id="seats"></div>
+<div class="bar"><div class="sum" id="sum"></div><button id="go" disabled>Bron qilish</button></div>
+<div id="err"></div>
+<div id="ok"><svg viewBox="0 0 56 56"><circle cx="28" cy="28" r="26"/><path d="M16 29l8 8 16-17"/></svg>
+<h2>Bron yuborildi</h2><p class="sub">Admin tasdiqlashi bilan botga xabar keladi.</p></div>
 <script>
 const tg=Telegram.WebApp;tg.ready();tg.expand();
-let Z={},zone=null,pc=null;
+try{tg.setHeaderColor('#120d24');tg.setBackgroundColor('#120d24')}catch(e){}
 const $=id=>document.getElementById(id);
-const today=new Date();today.setMinutes(today.getMinutes()-today.getTimezoneOffset());
-$('date').value=today.toISOString().slice(0,10);$('date').min=$('date').value;
-$('time').value=today.toISOString().slice(11,16);
-for(let i=1;i<=12;i++)$('hours').add(new Option(i+' soat',i));
-fetch('/api/zones').then(r=>r.json()).then(z=>{Z=z;
+const S={zone:null,pc:null,date:null,time:null,hours:1};
+let Z={},busy={};
+const pad=n=>String(n).padStart(2,'0');
+const ymd=d=>`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+const fmt=n=>n.toLocaleString('ru-RU');
+const WD=['Yak','Dush','Sesh','Chor','Pay','Jum','Shan'];
+const icon=n=>/vip/i.test(n)?'👑':/ps|play/i.test(n)?'🎮':'🖥️';
+const slots=()=>{const o=[],n=new Date(),t=S.date===ymd(n);
+  for(let m=0;m<1440;m+=30){if(t&&m<=n.getHours()*60+n.getMinutes())continue;o.push(`${pad(m/60|0)}:${pad(m%60)}`)}return o};
+function chips(el,items,cur,on){el.innerHTML='';
+  items.forEach(([v,l,s])=>{const b=document.createElement('button');b.className='chip'+(v===cur?' on':'');
+    b.innerHTML=l+(s?`<small>${s}</small>`:'');b.onclick=()=>on(v);el.appendChild(b)});
+  const o=el.querySelector('.on');if(o)el.scrollLeft=o.offsetLeft-el.clientWidth/2+o.clientWidth/2}
+function render(){
+  const st=new Date(S.date+'T'+S.time),en=new Date(st.getTime()+S.hours*36e5);
+  const tk=z=>new Set((busy[z]||[]).filter(b=>st<new Date(b.end)&&en>new Date(b.start)).map(b=>b.pc));
+  if(S.zone&&S.pc&&tk(S.zone).has(S.pc))S.pc=null;
   $('zones').innerHTML='';
-  Object.keys(z).forEach(n=>{const b=document.createElement('button');
-    b.textContent=`${n} (${z[n].price.toLocaleString()})`;
-    b.onclick=()=>{zone=n;pc=null;[...$('zones').children].forEach(x=>x.classList.remove('sel'));b.classList.add('sel');draw()};
-    $('zones').appendChild(b)})});
-['date','time','hours'].forEach(i=>$(i).onchange=()=>{pc=null;draw()});
-function overlap(a1,a2,b1,b2){return a1<b2&&a2>b1}
-async function draw(){
-  if(!zone)return;
-  const start=new Date($('date').value+'T'+$('time').value),h=+$('hours').value,end=new Date(start.getTime()+h*36e5);
-  const busy=await fetch(`/api/busy?zone=${zone}&date=${$('date').value}`).then(r=>r.json());
-  const taken=new Set(busy.filter(b=>overlap(start,end,new Date(b.start),new Date(b.end))).map(b=>b.pc));
-  $('pcs').innerHTML='';
-  for(let i=1;i<=Z[zone].pcs;i++){const b=document.createElement('button');
-    b.className='pc'+(pc===i?' sel':'');b.textContent=i;b.disabled=taken.has(i);
-    b.onclick=()=>{pc=i;draw()};$('pcs').appendChild(b)}
-  $('price').textContent=pc?`Jami: ${(Z[zone].price*h).toLocaleString()} so'm`:'';
+  Object.keys(Z).forEach(n=>{const free=Z[n].pcs-tk(n).size,b=document.createElement('button');
+    b.className='zone'+(n===S.zone?' on':'');
+    b.innerHTML=`<span class="ic">${icon(n)}</span><b>${n}</b><span class="pr">${fmt(Z[n].price)} so'm/soat</span><span class="fr${free?'':' no'}">${free?free+' ta bo\'sh':'Bo\'sh joy yo\'q'}</span>`;
+    b.onclick=()=>{S.zone=n;S.pc=null;render()};$('zones').appendChild(b)});
+  const days=[];for(let i=0;i<7;i++){const d=new Date();d.setDate(d.getDate()+i);
+    days.push([ymd(d),i?i==1?'Ertaga':WD[d.getDay()]:'Bugun',`${pad(d.getDate())}.${pad(d.getMonth()+1)}`])}
+  chips($('dates'),days,S.date,async v=>{S.date=v;S.pc=null;const sl=slots();if(!sl.includes(S.time))S.time=sl[0];await load()});
+  chips($('times'),slots().map(t=>[t,t]),S.time,v=>{S.time=v;render()});
+  chips($('hours'),[1,2,3,4,5,6,8,10].map(h=>[h,h+' soat']),S.hours,v=>{S.hours=v;render()});
+  const box=$('seats');box.innerHTML='';
+  if(!S.zone)box.innerHTML='<div class="hint">Avval zonani tanlang</div>';
+  else{const t=tk(S.zone);for(let i=1;i<=Z[S.zone].pcs;i++){const b=document.createElement('button');
+    b.className='seat'+(S.pc===i?' on':'');b.disabled=t.has(i);
+    b.innerHTML=i+(t.has(i)?'<small>band</small>':'');b.onclick=()=>{S.pc=i;render()};box.appendChild(b)}}
+  const ok=S.zone&&S.pc;$('go').disabled=!ok;
+  $('sum').innerHTML=ok?`<b>${S.zone}, PC ${S.pc}</b><span>${S.time}–${pad(en.getHours())}:${pad(en.getMinutes())}</span>`:'<span>Kompyuter tanlang</span>';
+  $('go').textContent=ok?`Bron qilish, ${fmt(Z[S.zone].price*S.hours)} so'm`:'Bron qilish';
 }
+async function load(){
+  const r=await Promise.all(Object.keys(Z).map(z=>fetch(`/api/busy?zone=${encodeURIComponent(z)}&date=${S.date}`).then(r=>r.json())));
+  Object.keys(Z).forEach((z,i)=>busy[z]=r[i]);render()}
+function err(t){const e=$('err');e.textContent=t;e.style.display='block';setTimeout(()=>e.style.display='none',3500)}
 $('go').onclick=async()=>{
-  if(!zone||!pc)return $('msg').textContent='Zona va kompyuterni tanlang';
   $('go').disabled=true;
-  const r=await fetch('/api/book',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({initData:tg.initData,zone,pc,hours:+$('hours').value,start:$('date').value+'T'+$('time').value})});
-  const d=await r.json();
-  if(d.ok){tg.close()}else{$('msg').textContent='❌ '+d.error;$('go').disabled=false;draw()}
+  try{const r=await fetch('/api/book',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({initData:tg.initData,zone:S.zone,pc:S.pc,hours:S.hours,start:S.date+'T'+S.time})});
+    const d=await r.json();
+    if(d.ok){$('ok').style.display='flex';setTimeout(()=>tg.close(),2200)}
+    else{err(d.error||'Xatolik yuz berdi');S.pc=null;await load()}
+  }catch(e){err('Server bilan aloqa yo\'q. Qayta urinib ko\'ring.');render()}
 };
+fetch('/api/zones').then(r=>r.json()).then(async z=>{Z=z;
+  S.date=ymd(new Date());if(!slots().length){const d=new Date();d.setDate(d.getDate()+1);S.date=ymd(d)}
+  S.time=slots()[0];await load()});
 </script></body></html>
