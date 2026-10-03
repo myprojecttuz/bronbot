@@ -15,9 +15,13 @@ REMIND_MIN = 30  # bron boshlanishidan necha daqiqa oldin eslatish
 
 # Zonalarni shu yerda o'zgartiring: nomi -> narx (soatiga) va kompyuterlar soni
 ZONES = {
-    "Standard": {"price": 15000, "pcs": 10},
-    "VIP": {"price": 25000, "pcs": 5},
-    "PS5": {"price": 40000, "pcs": 3},
+    "MAIN": {"price": 15000, "pcs": list(range(1, 31))},
+    "SOLO": {"price": 25000, "pcs": [31, 132]},
+    "TRIO": {"price": 20000, "pcs": list(range(33, 39))},
+    "SUPERVIP": {"price": 40000, "pcs": list(range(39, 45))},
+    "WOMEN": {"price": 15000, "pcs": list(range(45, 51))},
+    "STARWARS": {"price": 25000, "pcs": list(range(51, 57))},
+    "MARVEL": {"price": 25000, "pcs": list(range(57, 63))},
 }
 
 bot = Bot(TOKEN)
@@ -191,7 +195,7 @@ async def book(req):
     if not user:
         return web.json_response({"error": "Ruxsat yo'q"}, status=403)
     zone, pc, hours = b["zone"], int(b["pc"]), int(b["hours"])
-    if zone not in ZONES or not 1 <= pc <= ZONES[zone]["pcs"] or not 1 <= hours <= 12:
+    if zone not in ZONES or pc not in ZONES[zone]["pcs"] or not 1 <= hours <= 12:
         return web.json_response({"error": "Noto'g'ri ma'lumot"}, status=400)
     start = datetime.fromisoformat(b["start"])
     if start < datetime.now():

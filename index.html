@@ -3,117 +3,133 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Bron</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
-<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@500;600;700&display=swap" rel="stylesheet">
 <style>
-:root{--bg:#120d24;--card:#1c1536;--line:#31265e;--txt:#f1ecff;--mut:#8f84bd;--pink:#ff2e93;--cyan:#27e1ff;--head:'Chakra Petch',system-ui,sans-serif}
+:root{--bg:#0b0b0e;--pn:#151519;--ln:#26262d;--tx:#f2f2f5;--mu:#8a8a98;--pu:#8b5cf6;--pl:#a78bfa}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-body{margin:0;padding:18px 16px 130px;color:var(--txt);font:15px system-ui,sans-serif;background:radial-gradient(700px 380px at 85% -8%,#4a1b7d 0,transparent 65%),radial-gradient(500px 300px at -10% 30%,#10315a 0,transparent 60%),var(--bg);min-height:100vh}
-h1{font:700 30px var(--head);margin:2px 0 4px;letter-spacing:.2px}
-.sub{color:var(--mut);margin:0 0 6px}
-h2{font:700 17px var(--head);margin:24px 0 10px}
-.zones{display:grid;grid-template-columns:repeat(auto-fit,minmax(104px,1fr));gap:10px}
-.zone{background:var(--card);border:1.5px solid var(--line);border-radius:16px;padding:14px 12px;text-align:left;color:inherit;font:inherit;cursor:pointer;transition:.15s}
-.zone .ic{font-size:26px;display:block;margin-bottom:8px}
-.zone b{font:700 17px var(--head);display:block}
-.zone .pr{color:var(--mut);font-size:13px;margin-top:2px;display:block}
-.zone .fr{color:var(--cyan);font-size:13px;margin-top:8px;display:block}
-.zone .fr.no{color:var(--pink)}
-.zone.on{border-color:var(--pink);background:linear-gradient(160deg,#3a1450,#1c1536);box-shadow:0 0 0 1px var(--pink),0 8px 28px -8px var(--pink)}
-.chips{display:flex;gap:8px;overflow-x:auto;scrollbar-width:none;margin:0 -16px;padding:2px 16px 4px}
+html,body{margin:0;height:100%}
+body{display:flex;flex-direction:column;height:100dvh;overflow:hidden;background:radial-gradient(600px 300px at 100% 100%,#3b1d82 0,transparent 70%),var(--bg);color:var(--tx);font:14px Inter,system-ui,sans-serif;padding:max(10px,env(safe-area-inset-top)) 12px 0}
+.top{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+.top h1{font-size:17px;font-weight:700;margin:0 auto 0 4px}
+.pill{background:var(--pn);border:1px solid var(--ln);border-radius:12px;color:var(--tx);font:600 14px Inter,system-ui;padding:9px 11px;color-scheme:dark}
+.chips{display:flex;gap:8px;overflow-x:auto;scrollbar-width:none;margin:0 -12px 8px;padding:0 12px}
 .chips::-webkit-scrollbar{display:none}
-.chip{flex:none;min-width:62px;background:var(--card);border:1.5px solid var(--line);color:var(--txt);border-radius:12px;padding:10px 14px;font:600 15px var(--head);cursor:pointer;text-align:center}
-.chip small{display:block;font:12px system-ui;color:var(--mut);margin-top:2px}
-.chip.on{background:linear-gradient(135deg,var(--pink),#9b35ff);border-color:transparent}
-.chip.on small{color:#ffe3f1}
-.seats{display:grid;grid-template-columns:repeat(auto-fill,minmax(68px,1fr));gap:12px 10px}
-.seat{position:relative;height:62px;background:linear-gradient(180deg,#1f1a45,#171236);border:1.5px solid #2f6f86;border-radius:9px 9px 6px 6px;color:var(--txt);font:700 19px var(--head);cursor:pointer;margin-bottom:8px}
-.seat::after{content:"";position:absolute;left:50%;bottom:-9px;width:26px;height:5px;margin-left:-13px;background:#2f6f86;border-radius:0 0 4px 4px}
-.seat.on{border-color:var(--pink);background:linear-gradient(180deg,#5b1b66,#2b1049);box-shadow:0 0 18px -2px var(--pink)}
-.seat.on::after{background:var(--pink)}
-.seat:disabled{border:1.5px dashed var(--line);background:none;color:#5b5285;cursor:not-allowed}
-.seat:disabled::after{background:var(--line)}
-.seat small{display:block;font:11px system-ui;margin-top:1px}
-.hint{color:var(--mut);padding:18px 0}
-.bar{position:fixed;left:0;right:0;bottom:0;display:flex;align-items:center;gap:12px;padding:12px 16px calc(12px + env(safe-area-inset-bottom,0px));background:rgba(18,13,36,.92);backdrop-filter:blur(14px);border-top:1px solid var(--line)}
-.sum{flex:1;min-width:0;line-height:1.3}
-.sum b{font:700 16px var(--head);display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.sum span{color:var(--mut);font-size:13px}
-#go{flex:none;border:0;border-radius:14px;padding:14px 20px;font:700 16px var(--head);color:#fff;background:linear-gradient(135deg,var(--pink),#9b35ff);box-shadow:0 8px 24px -8px var(--pink);cursor:pointer}
-#go:disabled{background:var(--card);color:var(--mut);box-shadow:none}
-#err{position:fixed;top:12px;left:16px;right:16px;background:#4a0f2a;border:1px solid var(--pink);border-radius:12px;padding:12px 14px;display:none;z-index:5}
+.chip{flex:none;background:var(--pn);border:1px solid var(--ln);color:var(--tx);border-radius:12px;padding:8px 13px;font:600 13px Inter,system-ui;cursor:pointer}
+.chip small{color:var(--mu);font-weight:500;margin-left:6px}
+.chip.on{background:var(--pu);border-color:var(--pu)}.chip.on small{color:#e9ddff}
+.tools{display:flex;align-items:center;gap:8px;margin-bottom:8px;color:var(--mu);font-size:13px}
+.tools span{margin-right:auto}
+.tools button{background:var(--pn);border:1px solid var(--ln);color:var(--tx);border-radius:10px;min-width:38px;height:34px;font:600 15px Inter;cursor:pointer;padding:0 10px}
+.wrap{flex:1;min-height:0;overflow:auto;border:1px solid var(--ln);border-radius:20px;background:#0e0e12;padding:10px}
+#map{position:relative;margin:0 auto}
+.pc{position:absolute;border-radius:8px;border:1px solid #2d2d36;background:#1b1b21;color:#9a9aa8;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:0;cursor:pointer;transition:.12s}
+.pc b{font:700 calc(var(--u)*.29) Inter,system-ui}
+.pc i{display:none;font:500 8px Inter,system-ui;color:#6a6a78;font-style:normal}
+.big .pc i{display:block}
+.pc.on{background:linear-gradient(160deg,#9a6dff,#6d28d9);border-color:var(--pl);color:#fff;box-shadow:0 0 18px -2px var(--pu)}
+.pc.on i{color:#e4d8ff}
+.pc.taken{background:#1c1330;border:1px dashed #4b3585;color:#6f5aae;cursor:not-allowed}
+.pc.dim{opacity:.2}
+.wall{position:absolute;border-radius:2px;background:repeating-linear-gradient(45deg,#3b4054 0 3px,#292d3b 3px 6px)}
+.ico{position:absolute;display:flex;align-items:center;justify-content:center;border-radius:8px;background:#1d2130;border:1px solid #2b3144;font-size:calc(var(--u)*.45)}
+.sheet{margin:10px -12px 0;background:var(--pn);border:1px solid var(--ln);border-bottom:0;border-radius:22px 22px 0 0;padding:14px 16px calc(14px + env(safe-area-inset-bottom,0px))}
+.sheet .r{display:flex;justify-content:space-between;align-items:flex-start}
+.sheet h3{margin:0;font-size:18px}.sheet .z{color:var(--mu);font-size:13px}
+.sheet .p{text-align:right;font-weight:700;font-size:16px}.sheet .p small{display:block;color:var(--pl);font-weight:600;font-size:12px}
+.meta{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:12px 0}
+.meta div{background:#0f0f13;border:1px solid var(--ln);border-radius:12px;padding:8px 10px}
+.meta span{display:block;color:var(--mu);font-size:11px}.meta b{font-size:14px}
+#go{width:100%;border:0;border-radius:14px;padding:14px;background:var(--pu);color:#fff;font:700 16px Inter,system-ui;cursor:pointer}
+#go:disabled{opacity:.6}
+.leg{display:flex;gap:14px;color:var(--mu);font-size:13px;margin-top:8px;flex-wrap:wrap}
+.leg i{display:inline-block;width:12px;height:12px;border-radius:4px;margin-right:6px;vertical-align:-1px;border:1px solid #2d2d36;background:#1b1b21}
+.leg .t{background:#1c1330;border:1px dashed #4b3585}.leg .s{background:var(--pu);border-color:var(--pl)}
+#err{position:fixed;top:12px;left:12px;right:12px;background:#33122b;border:1px solid var(--pu);border-radius:12px;padding:12px;display:none;z-index:5}
 #ok{position:fixed;inset:0;background:var(--bg);display:none;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:30px;z-index:9}
-#ok svg{width:96px;height:96px;margin-bottom:18px}
-#ok circle{stroke:var(--cyan);stroke-width:3;fill:none;stroke-dasharray:166;stroke-dashoffset:166;animation:d .6s ease forwards}
-#ok path{stroke:var(--cyan);stroke-width:4;fill:none;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:48;stroke-dashoffset:48;animation:d .4s .5s ease forwards}
+#ok svg{width:92px;height:92px;margin-bottom:16px}
+#ok circle{stroke:var(--pl);stroke-width:3;fill:none;stroke-dasharray:166;stroke-dashoffset:166;animation:d .6s forwards}
+#ok path{stroke:var(--pl);stroke-width:4;fill:none;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:48;stroke-dashoffset:48;animation:d .4s .5s forwards}
 @keyframes d{to{stroke-dashoffset:0}}
-#ok h2{font-size:24px;margin:0 0 8px}
-:focus-visible{outline:2px solid var(--cyan);outline-offset:2px}
+#ok h2{margin:0 0 6px;font-size:22px}#ok p{margin:0;color:var(--mu)}
+:focus-visible{outline:2px solid var(--pl);outline-offset:2px}
 </style></head><body>
-<h1>Joy band qiling</h1>
-<p class="sub">Zona, vaqt va kompyuterni tanlang</p>
-<h2>Zona</h2><div class="zones" id="zones"></div>
-<h2>Kun</h2><div class="chips" id="dates"></div>
-<h2>Boshlanish vaqti</h2><div class="chips" id="times"></div>
-<h2>Davomiyligi</h2><div class="chips" id="hours"></div>
-<h2>Kompyuter</h2><div class="seats" id="seats"></div>
-<div class="bar"><div class="sum" id="sum"></div><button id="go" disabled>Bron qilish</button></div>
+<div class="top"><h1>Game club</h1>
+<input class="pill" type="date" id="date"><input class="pill" type="time" id="time" step="1800">
+<select class="pill" id="hours"></select></div>
+<div class="chips" id="chips"></div>
+<div class="tools"><span id="zl"></span><button id="zo">−</button><button id="zi">+</button><button id="fit">Moslash</button></div>
+<div class="wrap" id="wrap"><div id="map"></div></div>
+<div class="sheet" id="sheet"></div>
 <div id="err"></div>
-<div id="ok"><svg viewBox="0 0 56 56"><circle cx="28" cy="28" r="26"/><path d="M16 29l8 8 16-17"/></svg>
-<h2>Bron yuborildi</h2><p class="sub">Admin tasdiqlashi bilan botga xabar keladi.</p></div>
+<div id="ok"><svg viewBox="0 0 56 56"><circle cx="28" cy="28" r="26"/><path d="M16 29l8 8 16-17"/></svg><h2>Bron yuborildi</h2><p>Admin tasdiqlashi bilan botga xabar keladi.</p></div>
 <script>
 const tg=Telegram.WebApp;tg.ready();tg.expand();
-try{tg.setHeaderColor('#120d24');tg.setBackgroundColor('#120d24')}catch(e){}
-const $=id=>document.getElementById(id);
-const S={zone:null,pc:null,date:null,time:null,hours:1};
-let Z={},busy={};
-const pad=n=>String(n).padStart(2,'0');
-const ymd=d=>`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
-const fmt=n=>n.toLocaleString('ru-RU');
-const WD=['Yak','Dush','Sesh','Chor','Pay','Jum','Shan'];
-const icon=n=>/vip/i.test(n)?'👑':/ps|play/i.test(n)?'🎮':'🖥️';
-const slots=()=>{const o=[],n=new Date(),t=S.date===ymd(n);
-  for(let m=0;m<1440;m+=30){if(t&&m<=n.getHours()*60+n.getMinutes())continue;o.push(`${pad(m/60|0)}:${pad(m%60)}`)}return o};
-function chips(el,items,cur,on){el.innerHTML='';
-  items.forEach(([v,l,s])=>{const b=document.createElement('button');b.className='chip'+(v===cur?' on':'');
-    b.innerHTML=l+(s?`<small>${s}</small>`:'');b.onclick=()=>on(v);el.appendChild(b)});
-  const o=el.querySelector('.on');if(o)el.scrollLeft=o.offsetLeft-el.clientWidth/2+o.clientWidth/2}
-function render(){
-  const st=new Date(S.date+'T'+S.time),en=new Date(st.getTime()+S.hours*36e5);
-  const tk=z=>new Set((busy[z]||[]).filter(b=>st<new Date(b.end)&&en>new Date(b.start)).map(b=>b.pc));
-  if(S.zone&&S.pc&&tk(S.zone).has(S.pc))S.pc=null;
-  $('zones').innerHTML='';
-  Object.keys(Z).forEach(n=>{const free=Z[n].pcs-tk(n).size,b=document.createElement('button');
-    b.className='zone'+(n===S.zone?' on':'');
-    b.innerHTML=`<span class="ic">${icon(n)}</span><b>${n}</b><span class="pr">${fmt(Z[n].price)} so'm/soat</span><span class="fr${free?'':' no'}">${free?free+' ta bo\'sh':'Bo\'sh joy yo\'q'}</span>`;
-    b.onclick=()=>{S.zone=n;S.pc=null;render()};$('zones').appendChild(b)});
-  const days=[];for(let i=0;i<7;i++){const d=new Date();d.setDate(d.getDate()+i);
-    days.push([ymd(d),i?i==1?'Ertaga':WD[d.getDay()]:'Bugun',`${pad(d.getDate())}.${pad(d.getMonth()+1)}`])}
-  chips($('dates'),days,S.date,async v=>{S.date=v;S.pc=null;const sl=slots();if(!sl.includes(S.time))S.time=sl[0];await load()});
-  chips($('times'),slots().map(t=>[t,t]),S.time,v=>{S.time=v;render()});
-  chips($('hours'),[1,2,3,4,5,6,8,10].map(h=>[h,h+' soat']),S.hours,v=>{S.hours=v;render()});
-  const box=$('seats');box.innerHTML='';
-  if(!S.zone)box.innerHTML='<div class="hint">Avval zonani tanlang</div>';
-  else{const t=tk(S.zone);for(let i=1;i<=Z[S.zone].pcs;i++){const b=document.createElement('button');
-    b.className='seat'+(S.pc===i?' on':'');b.disabled=t.has(i);
-    b.innerHTML=i+(t.has(i)?'<small>band</small>':'');b.onclick=()=>{S.pc=i;render()};box.appendChild(b)}}
-  const ok=S.zone&&S.pc;$('go').disabled=!ok;
-  $('sum').innerHTML=ok?`<b>${S.zone}, PC ${S.pc}</b><span>${S.time}–${pad(en.getHours())}:${pad(en.getMinutes())}</span>`:'<span>Kompyuter tanlang</span>';
-  $('go').textContent=ok?`Bron qilish, ${fmt(Z[S.zone].price*S.hours)} so'm`:'Bron qilish';
+try{tg.setHeaderColor('#0b0b0e');tg.setBackgroundColor('#0b0b0e')}catch(e){}
+const $=id=>document.getElementById(id),pad=n=>String(n).padStart(2,'0');
+const ymd=d=>`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`,fmt=n=>n.toLocaleString('ru-RU');
+const PCS=[],add=(id,zone,c,r)=>PCS.push({id,zone,c,r});
+[1,2,4,5,7,8].forEach((c,k)=>{for(let r=0;r<5;r++)add(k*5+r+1,'MAIN',c,4+r)});
+add(31,'SOLO',1,10);add(132,'SOLO',1,12);
+[[3,33],[5,36]].forEach(([c,s])=>[0,1,2].forEach(r=>add(s+r,'TRIO',c,10+r)));
+[[7,41,40,39],[9,42,43,44]].forEach(([c,...a])=>a.forEach((id,r)=>add(id,'SUPERVIP',c,10+r)));
+[[9,48,49,50],[10,45,46,47]].forEach(([c,...a])=>a.forEach((id,r)=>add(id,'WOMEN',c,14+r)));
+[[5,53,56],[6,52,55],[7,51,54]].forEach(([c,a,b])=>{add(a,'STARWARS',c,15);add(b,'STARWARS',c,16)});
+[[1,59,62],[2,58,61],[3,57,60]].forEach(([c,a,b])=>{add(a,'MARVEL',c,15);add(b,'MARVEL',c,16)});
+const P={};PCS.forEach(p=>P[p.id]=p);
+const WH=[[3,1,9],[9,1,10],[11,1,2],[13,1,2],[13,9,11],[17,0,11]];
+const WV=[[9,3,9],[10,9,13],[11,13,17],[2,9,13],[4,9,13],[6,9,13],[4,15,17],[8,15,17]];
+const RH=.8;let U=36,Z={},busy={},S={f:null,pc:null,sending:false};
+const pos=(c,r)=>`left:${c*U+2}px;top:${r*U*RH+2}px;width:${U-4}px;height:${U*RH-4}px`;
+function drawMap(){
+  const m=$('map');m.style.width=12*U+'px';m.style.height=18*U*RH+'px';m.style.setProperty('--u',U+'px');
+  m.className=U>=46?'big':'';
+  m.style.backgroundImage='linear-gradient(#ffffff0a 1px,transparent 1px),linear-gradient(90deg,#ffffff0a 1px,transparent 1px)';
+  m.style.backgroundSize=`${U}px ${U*RH}px`;
+  let h='';const cy=r=>r*U*RH+U*RH/2-3,cx=c=>c*U+U/2-3;
+  WH.forEach(([r,a,b])=>h+=`<div class="wall" style="left:${cx(a)}px;top:${cy(r)}px;width:${(b-a)*U+6}px;height:6px"></div>`);
+  WV.forEach(([c,a,b])=>h+=`<div class="wall" style="left:${cx(c)}px;top:${cy(a)}px;width:6px;height:${(b-a)*U*RH+6}px"></div>`);
+  [[0,0,'🚪'],[1,1,'🚻'],[1,2,'💳']].forEach(([c,r,e])=>h+=`<div class="ico" style="${pos(c,r)}">${e}</div>`);
+  PCS.forEach(p=>h+=`<button class="pc" data-id="${p.id}" style="${pos(p.c,p.r)}"><i>${p.zone}</i><b>${String(p.id).padStart(3,'0')}</b></button>`);
+  m.innerHTML=h;$('zl').textContent=`Xarita ${Math.round(U/36*100)}%`;paint();
 }
-async function load(){
-  const r=await Promise.all(Object.keys(Z).map(z=>fetch(`/api/busy?zone=${encodeURIComponent(z)}&date=${S.date}`).then(r=>r.json())));
-  Object.keys(Z).forEach((z,i)=>busy[z]=r[i]);render()}
+const range=()=>{const s=new Date($('date').value+'T'+$('time').value);return[s,new Date(s.getTime()+$('hours').value*36e5)]};
+function paint(){
+  const[s,e]=range(),tk=new Set();
+  Object.values(busy).forEach(a=>a.forEach(b=>{if(s<new Date(b.end)&&e>new Date(b.start))tk.add(b.pc)}));
+  if(S.pc&&tk.has(S.pc))S.pc=null;
+  document.querySelectorAll('.pc').forEach(b=>{const id=+b.dataset.id,dim=S.f&&P[id].zone!==S.f;
+    b.disabled=tk.has(id)||!!dim;b.classList.toggle('taken',tk.has(id));b.classList.toggle('on',S.pc===id);b.classList.toggle('dim',!!dim)});
+  const sh=$('sheet');
+  if(!S.pc)sh.innerHTML='<div style="font-weight:600">Xaritadan kompyuter tanlang</div><div class="leg"><span><i></i>Bo\'sh</span><span><i class="t"></i>Band</span><span><i class="s"></i>Tanlangan</span></div>';
+  else{const p=P[S.pc],pr=Z[p.zone].price,h=+$('hours').value;
+    sh.innerHTML=`<div class="r"><div><h3>PC ${String(p.id).padStart(3,'0')}</h3><span class="z">${p.zone}</span></div><div class="p">${fmt(pr)} so'm<small>soatiga</small></div></div>
+    <div class="meta"><div><span>Vaqt</span><b>${$('time').value}–${pad(e.getHours())}:${pad(e.getMinutes())}</b></div><div><span>Davomiylik</span><b>${h} soat</b></div><div><span>Jami</span><b>${fmt(pr*h)}</b></div></div>
+    <button id="go">Bron qilish</button>`}
+}
+function chips(){const c=$('chips');c.innerHTML='';
+  [[null,'Hammasi']].concat(Object.keys(Z).map(z=>[z,z])).forEach(([z,l])=>{const b=document.createElement('button');
+    b.className='chip'+(S.f===z?' on':'');b.innerHTML=l+(z?`<small>${fmt(Z[z].price/1000)}k</small>`:'');
+    b.onclick=()=>{S.f=z;if(S.pc&&z&&P[S.pc].zone!==z)S.pc=null;chips();paint()};c.appendChild(b)})}
+async function load(){const d=$('date').value,zs=Object.keys(Z);
+  const r=await Promise.all(zs.map(z=>fetch(`/api/busy?zone=${encodeURIComponent(z)}&date=${d}`).then(r=>r.json())));
+  zs.forEach((z,i)=>busy[z]=r[i]);paint()}
 function err(t){const e=$('err');e.textContent=t;e.style.display='block';setTimeout(()=>e.style.display='none',3500)}
-$('go').onclick=async()=>{
-  $('go').disabled=true;
+$('map').onclick=e=>{const b=e.target.closest('.pc');if(b&&!b.disabled){S.pc=+b.dataset.id;paint()}};
+$('sheet').onclick=async e=>{if(e.target.id!=='go'||S.sending)return;
+  S.sending=true;e.target.disabled=true;const p=P[S.pc];
   try{const r=await fetch('/api/book',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({initData:tg.initData,zone:S.zone,pc:S.pc,hours:S.hours,start:S.date+'T'+S.time})});
+    body:JSON.stringify({initData:tg.initData,zone:p.zone,pc:p.id,hours:+$('hours').value,start:$('date').value+'T'+$('time').value})});
     const d=await r.json();
     if(d.ok){$('ok').style.display='flex';setTimeout(()=>tg.close(),2200)}
     else{err(d.error||'Xatolik yuz berdi');S.pc=null;await load()}
-  }catch(e){err('Server bilan aloqa yo\'q. Qayta urinib ko\'ring.');render()}
-};
-fetch('/api/zones').then(r=>r.json()).then(async z=>{Z=z;
-  S.date=ymd(new Date());if(!slots().length){const d=new Date();d.setDate(d.getDate()+1);S.date=ymd(d)}
-  S.time=slots()[0];await load()});
+  }catch(x){err("Server bilan aloqa yo'q. Qayta urinib ko'ring.");paint()}
+  S.sending=false};
+const fit=()=>{U=Math.max(26,Math.floor(($('wrap').clientWidth-22)/12));drawMap()};
+$('fit').onclick=fit;$('zi').onclick=()=>{U=Math.min(72,U+6);drawMap()};$('zo').onclick=()=>{U=Math.max(24,U-6);drawMap()};
+for(let i=1;i<=10;i++)$('hours').add(new Option(i+' soat',i));
+['time','hours'].forEach(i=>$(i).onchange=paint);$('date').onchange=load;
+const d=new Date();d.setMinutes(d.getMinutes()+30-d.getMinutes()%30,0,0);
+$('date').value=$('date').min=ymd(new Date());if(ymd(d)>$('date').value)$('date').value=ymd(d);
+$('time').value=`${pad(d.getHours())}:${pad(d.getMinutes())}`;
+fetch('/api/zones').then(r=>r.json()).then(async z=>{Z=z;chips();fit();await load()});
 </script></body></html>
