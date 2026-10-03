@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="uz"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+body{margin:0;padding:16px;font-family:system-ui,sans-serif;background:var(--tg-theme-bg-color,#fff);color:var(--tg-theme-text-color,#000)}
+h3{margin:18px 0 8px}
+.row{display:flex;gap:8px;flex-wrap:wrap}
+button,input,select{font-size:16px;padding:10px 14px;border-radius:10px;border:1px solid #8885;background:none;color:inherit}
+.sel{background:var(--tg-theme-button-color,#2481cc);color:var(--tg-theme-button-text-color,#fff)}
+.pc{width:56px;padding:12px 0}
+.pc:disabled{opacity:.3;text-decoration:line-through}
+#go{width:100%;margin-top:20px;background:var(--tg-theme-button-color,#2481cc);color:var(--tg-theme-button-text-color,#fff)}
+#msg{margin-top:12px;text-align:center}
+</style></head><body>
+<h2>🎮 Bron qilish</h2>
+<h3>Zona</h3><div class="row" id="zones"></div>
+<h3>Sana va vaqt</h3>
+<div class="row"><input type="date" id="date"><input type="time" id="time" step="1800">
+<select id="hours"></select></div>
+<h3>Kompyuter</h3><div class="row" id="pcs"></div>
+<div id="price"></div>
+<button id="go">Bron qilish</button><div id="msg"></div>
+<script>
+const tg=Telegram.WebApp;tg.ready();tg.expand();
+let Z={},zone=null,pc=null;
+const $=id=>document.getElementById(id);
+const today=new Date();today.setMinutes(today.getMinutes()-today.getTimezoneOffset());
+$('date').value=today.toISOString().slice(0,10);$('date').min=$('date').value;
+$('time').value=today.toISOString().slice(11,16);
+for(let i=1;i<=12;i++)$('hours').add(new Option(i+' soat',i));
+fetch('/api/zones').then(r=>r.json()).then(z=>{Z=z;
+  $('zones').innerHTML='';
+  Object.keys(z).forEach(n=>{const b=document.createElement('button');
+    b.textContent=`${n} (${z[n].price.toLocaleString()})`;
+    b.onclick=()=>{zone=n;pc=null;[...$('zones').children].forEach(x=>x.classList.remove('sel'));b.classList.add('sel');draw()};
+    $('zones').appendChild(b)})});
+['date','time','hours'].forEach(i=>$(i).onchange=()=>{pc=null;draw()});
+function overlap(a1,a2,b1,b2){return a1<b2&&a2>b1}
+async function draw(){
+  if(!zone)return;
+  const start=new Date($('date').value+'T'+$('time').value),h=+$('hours').value,end=new Date(start.getTime()+h*36e5);
+  const busy=await fetch(`/api/busy?zone=${zone}&date=${$('date').value}`).then(r=>r.json());
+  const taken=new Set(busy.filter(b=>overlap(start,end,new Date(b.start),new Date(b.end))).map(b=>b.pc));
+  $('pcs').innerHTML='';
+  for(let i=1;i<=Z[zone].pcs;i++){const b=document.createElement('button');
+    b.className='pc'+(pc===i?' sel':'');b.textContent=i;b.disabled=taken.has(i);
+    b.onclick=()=>{pc=i;draw()};$('pcs').appendChild(b)}
+  $('price').textContent=pc?`Jami: ${(Z[zone].price*h).toLocaleString()} so'm`:'';
+}
+$('go').onclick=async()=>{
+  if(!zone||!pc)return $('msg').textContent='Zona va kompyuterni tanlang';
+  $('go').disabled=true;
+  const r=await fetch('/api/book',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({initData:tg.initData,zone,pc,hours:+$('hours').value,start:$('date').value+'T'+$('time').value})});
+  const d=await r.json();
+  if(d.ok){tg.close()}else{$('msg').textContent='❌ '+d.error;$('go').disabled=false;draw()}
+};
+</script></body></html>
