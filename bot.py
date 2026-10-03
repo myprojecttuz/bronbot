@@ -56,6 +56,10 @@ def kb(*btns):
 
 
 
+INFO = {k: os.getenv(v, "") for k, v in {"address": "CLUB_ADDRESS", "phone": "CLUB_PHONE", "hours": "CLUB_HOURS", "admin": "ADMIN_USERNAME"}.items()}
+INFO["admin"] = INFO["admin"].lstrip("@")
+
+
 def check_init(init: str):
     """Telegram initData imzosini tekshiradi, user qaytaradi."""
     d = dict(parse_qsl(init))
@@ -218,6 +222,35 @@ async def book(req):
     return web.json_response({"ok": True})
 
 
+async def info(_):
+    return web.json_response(INFO)
+
+
+async def my(req):
+    user = check_init((await req.json()).get("initData", ""))
+    if not user:
+        return web.json_response({"error": "Ruxsat yo'q"}, status=403)
+    now = datetime.now().isoformat(timespec="minutes")
+    rows = db.execute(f"SELECT {COLS} FROM bookings WHERE user_id=? ORDER BY start DESC LIMIT 30", (user["id"],)).fetchall()
+    return web.json_response([{"id": r[0], "zone": r[3], "pc": r[4], "start": r[5], "end": r[6], "status": r[7],
+                               "price": price(r[3], r[5], r[6]) if r[3] in ZONES else 0,
+                               "can_cancel": r[7] in ("pending", "confirmed") and r[5] > now} for r in rows])
+
+
+async def cancel(req):
+    b = await req.json()
+    user = check_init(b.get("initData", ""))
+    if not user:
+        return web.json_response({"error": "Ruxsat yo'q"}, status=403)
+    r = db.execute(f"SELECT {COLS} FROM bookings WHERE id=? AND user_id=? AND {ACTIVE}", (b.get("id"), user["id"])).fetchone()
+    if not r or r[5] <= datetime.now().isoformat(timespec="minutes"):
+        return web.json_response({"error": "Bekor qilib bo'lmaydi"}, status=400)
+    db.execute("UPDATE bookings SET status='cancelled' WHERE id=?", (r[0],))
+    db.commit()
+    await bot.send_message(ADMIN_ID, f"🚫 Mijoz bronni bekor qildi:\n{r[2]}\n{line(r[:7] + ('cancelled',))}")
+    return web.json_response({"ok": True})
+
+
 async def reminder_loop():
     while True:
         try:
@@ -242,7 +275,8 @@ async def reminder_loop():
 async def main():
     app = web.Application()
     app.add_routes([web.get("/", index), web.get("/api/zones", zones),
-                    web.get("/api/busy", busy), web.post("/api/book", book)])
+                    web.get("/api/busy", busy), web.post("/api/book", book),
+                    web.post("/api/my", my), web.post("/api/cancel", cancel), web.get("/api/info", info)])
     runner = web.AppRunner(app)
     await runner.setup()
     await web.TCPSite(runner, "0.0.0.0", PORT).start()

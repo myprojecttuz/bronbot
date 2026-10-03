@@ -30,3 +30,6 @@ Vaqt server soat mintaqasi bo'yicha ishlaydi (`export TZ=Asia/Tashkent`).
 Bron holatlari: kutilmoqda → tasdiqlangan / rad etilgan / bekor qilingan.
 Eslatmalar faqat tasdiqlangan bronlarga boradi. Rad etilgan va bekor qilingan bronlar PCni bo'shatadi.
 Eski `club.db` bo'lsa, `status` ustuni avtomatik qo'shiladi.
+
+## Klub ma'lumotlari ("Aloqa" bo'limi uchun, ixtiyoriy)
+Railway Variables ga qo'shing: `CLUB_ADDRESS`, `CLUB_PHONE`, `CLUB_HOURS`, `ADMIN_USERNAME` (@siz).
