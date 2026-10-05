@@ -14,16 +14,31 @@ REMIND_MIN = 30  # bron boshlanishidan necha daqiqa oldin eslatish
 INFO = {k: os.getenv(v, "") for k, v in {"address": "CLUB_ADDRESS", "phone": "CLUB_PHONE", "hours": "CLUB_HOURS", "admin": "ADMIN_USERNAME"}.items()}
 INFO["admin"] = INFO["admin"].lstrip("@")
 
-# Zonalar: narx (soatiga), kompyuter raqamlari va xususiyatlari.
-# DIQQAT: "specs" ichidagi xususiyatlar NAMUNA, o'zingizning haqiqiy ma'lumotlaringizga almashtiring.
+# Zonalar: sarlavha, narx (soatiga), kompyuter raqamlari va xususiyatlari.
+def spec(cpu, gpu, ram, mon, kbd, mouse, hp):
+    return {"Protsessor": cpu, "Videokarta": gpu, "Operativ xotira": ram, "Monitor": mon,
+            "Klaviatura": kbd, "Sichqoncha": mouse, "Quloqchin": hp}
+
+
+_BASE = ("Intel Core i5-12400", "Nvidia RTX 2060 Super", "16 GB, 3200 MHz", 'MSI 27", 240 Hz')
 ZONES = {
-    "MAIN": {"price": 15000, "pcs": list(range(1, 31)), "specs": ["Core i5", "RTX 3060", "16 GB RAM", "24\" 165 Hz"]},
-    "SOLO": {"price": 25000, "pcs": [31, 132], "specs": ["Core i7", "RTX 4060", "32 GB RAM", "27\" 240 Hz", "Alohida xona"]},
-    "TRIO": {"price": 20000, "pcs": list(range(33, 39)), "specs": ["Core i5", "RTX 3060 Ti", "16 GB RAM", "24\" 165 Hz", "3 kishilik xona"]},
-    "SUPERVIP": {"price": 40000, "pcs": list(range(39, 45)), "specs": ["Core i9", "RTX 4080", "64 GB RAM", "27\" 360 Hz", "Premium kreslo"]},
-    "WOMEN": {"price": 15000, "pcs": list(range(45, 51)), "specs": ["Core i5", "RTX 3060", "16 GB RAM", "24\" 165 Hz", "Qizlar zonasi"]},
-    "STARWARS": {"price": 25000, "pcs": list(range(51, 57)), "specs": ["Core i7", "RTX 4070", "32 GB RAM", "27\" 240 Hz", "Tematik zona"]},
-    "MARVEL": {"price": 25000, "pcs": list(range(57, 63)), "specs": ["Core i7", "RTX 4070", "32 GB RAM", "27\" 240 Hz", "Tematik zona"]},
+    "MAIN": {"title": "Main zone", "price": 20000, "pcs": list(range(1, 31)),
+             "specs": spec(*_BASE, "VGN N75", "Asus ROG Gladius 3", "Asus TUF H1 Gen2")},
+    "SOLO": {"title": "Solo + Stream Room", "price": 50000, "pcs": [31, 132],
+             "specs": spec("AMD Ryzen 5 7500F", "GeForce RTX 5060 (8 GB)", "32 GB, 5600 MHz", 'HKC 24.5", 400 Hz',
+                           "Red Square Alumix Kitsune", "Lamzu Atlantis OG V2 Pro", "Red Square Graphite V2 Mint")},
+    "TRIO": {"title": "Trio Room", "price": 35000, "pcs": list(range(33, 39)),
+             "specs": spec("AMD Ryzen 5 7500F", "RTX 5060 (8 GB)", "32 GB, 5600 MHz", 'HKC 24.5", 400 Hz',
+                           "Aula F99 Pro", "Logitech G Pro X Superlight", "Logitech G Pro X")},
+    "SUPERVIP": {"title": "Super VIP Room", "price": 40000, "pcs": list(range(39, 45)),
+                 "specs": spec("AMD Ryzen 7 7800X3D (suv sovutgichli)", "GeForce RTX 5070 (12 GB)", "32 GB, 4800 MHz",
+                               'Alienware 25", 500 Hz', "VXE V87 Pro", "Logitech G Pro Superlight 2", "Logitech G Pro X Wireless")},
+    "WOMEN": {"title": "Women's Area", "price": 30000, "pcs": list(range(45, 51)),
+              "specs": spec(*_BASE, "Redragon Evia", "Redragon K1ng Pro", "Razer BlackShark V2 X")},
+    "STARWARS": {"title": "Star Wars Area", "price": 30000, "pcs": list(range(51, 57)),
+                 "specs": spec(*_BASE, "Royal Kludge M87", "VGN ATK Mad G Pro", "Razer BlackShark V2 X")},
+    "MARVEL": {"title": "Marvel Area", "price": 30000, "pcs": list(range(57, 63)),
+               "specs": spec(*_BASE, "Royal Kludge M87", "VGN ATK Mad G Pro", "Razer BlackShark V2 X")},
 }
 
 bot = Bot(TOKEN)
@@ -277,6 +292,50 @@ async def cancel(req):
     return web.json_response({"ok": True})
 
 
+async def admin_auth(req):
+    b = await req.json()
+    u = check_init(b.get("initData", ""))
+    return b, (u if u and u["id"] == ADMIN_ID else None)
+
+
+def gdict(g):
+    return {"id": g[0][0], "name": g[0][2], "count": len(g), "pcs": pcs_text(g), "start": g[0][5],
+            "end": g[0][6], "status": g[0][7], "price": total(g)}
+
+
+async def admin_data(req):
+    _, u = await admin_auth(req)
+    if not u:
+        return web.json_response({"error": "Ruxsat yo'q"}, status=403)
+    now = datetime.now()
+    day = now.strftime("%Y-%m-%d")
+
+    def stat(since):
+        rows = db.execute("SELECT zone,start,end FROM bookings WHERE status='confirmed' AND start>=?", (since,)).fetchall()
+        return {"n": len(rows), "sum": sum(price(*r) for r in rows if r[0] in ZONES)}
+    return web.json_response({
+        "stats": {"today": stat(day), "week": stat((now - timedelta(days=7)).strftime("%Y-%m-%d"))},
+        "pending": [gdict(g) for g in groups("status='pending' AND end>?", (now_iso(),))],
+        "today": [gdict(g) for g in groups(f"start LIKE ? AND {ACTIVE}", (day + "%",))]})
+
+
+async def admin_decide(req):
+    b, u = await admin_auth(req)
+    if not u:
+        return web.json_response({"error": "Ruxsat yo'q"}, status=403)
+    act = b.get("action")
+    g = group_of(int(b.get("id", 0)))
+    if act not in ("ok", "no") or not g or g[0][7] not in ("pending", "confirmed"):
+        return web.json_response({"error": "Bu bron endi faol emas"}, status=400)
+    mark(g, "status", "confirmed" if act == "ok" else "rejected")
+    g = group_of(g[0][0])
+    if act == "ok":
+        await bot.send_message(g[0][1], f"✅ Bronigiz tasdiqlandi!\n{gtext(g)}")
+    else:
+        await bot.send_message(g[0][1], f"❌ Afsus, bronigiz bekor qilindi (admin tomonidan).\n{gtext(g)}\nBoshqa vaqt yoki joy tanlab ko'ring.")
+    return web.json_response({"ok": True})
+
+
 async def reminder_loop():
     while True:
         try:
@@ -298,7 +357,7 @@ async def main():
     app = web.Application()
     app.add_routes([web.get("/", index), web.get("/api/zones", zones), web.get("/api/busy", busy),
                     web.post("/api/book", book), web.post("/api/my", my), web.post("/api/cancel", cancel),
-                    web.get("/api/info", info)])
+                    web.get("/api/info", info), web.post("/api/admin", admin_data), web.post("/api/admin/decide", admin_decide)])
     runner = web.AppRunner(app)
     await runner.setup()
     await web.TCPSite(runner, "0.0.0.0", PORT).start()
