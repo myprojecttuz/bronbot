@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 from aiohttp import web
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command, CommandStart
-from aiogram.types import CallbackQuery, Message, WebAppInfo, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove, CallbackQuery, Message, WebAppInfo, InlineKeyboardMarkup, InlineKeyboardButton
 
 TOKEN = os.environ["BOT_TOKEN"]
 ADMIN_ID = int(os.environ["ADMIN_ID"])
@@ -48,25 +48,30 @@ db.execute("""CREATE TABLE IF NOT EXISTS bookings(
     id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, name TEXT,
     zone TEXT, pc INTEGER, start TEXT, end TEXT,
     reminded INTEGER DEFAULT 0, started INTEGER DEFAULT 0, status TEXT DEFAULT 'pending', grp TEXT)""")
-for col in ("status TEXT DEFAULT 'pending'", "grp TEXT"):
+for col in ("status TEXT DEFAULT 'pending'", "grp TEXT", "rate INTEGER"):
     try:
         db.execute(f"ALTER TABLE bookings ADD COLUMN {col}")
     except sqlite3.OperationalError:
         pass
+db.execute("CREATE TABLE IF NOT EXISTS users(user_id INTEGER PRIMARY KEY, phone TEXT, name TEXT, created TEXT)")
+db.execute("CREATE TABLE IF NOT EXISTS prices(zone TEXT PRIMARY KEY, price INTEGER)")
+for _z, _p in db.execute("SELECT zone,price FROM prices").fetchall():
+    if _z in ZONES:
+        ZONES[_z]["price"] = _p
 db.commit()
 
 ST = {"pending": "⏳ kutilmoqda", "confirmed": "✅ tasdiqlangan", "rejected": "❌ rad etilgan", "cancelled": "🚫 bekor qilingan"}
 ACTIVE = "status IN ('pending','confirmed')"
-COLS = "id,user_id,name,zone,pc,start,end,status,grp"
+COLS = "id,user_id,name,zone,pc,start,end,status,grp,rate"
 
 
 def now_iso():
     return datetime.now().isoformat(timespec="minutes")
 
 
-def price(zone, st, en):
+def price(zone, st, en, rate=None):
     h = (datetime.fromisoformat(en) - datetime.fromisoformat(st)).total_seconds() / 3600
-    return int(ZONES[zone]["price"] * h)
+    return int((rate or ZONES[zone]["price"]) * h)
 
 
 def kb(*btns):
@@ -96,7 +101,7 @@ def pcs_text(g):
 
 
 def total(g):
-    return sum(price(r[3], r[5], r[6]) for r in g if r[3] in ZONES)
+    return sum(price(r[3], r[5], r[6], r[9]) for r in g if r[3] in ZONES)
 
 
 def gtext(g):
@@ -129,12 +134,43 @@ async def do_cancel(uid, id_):
     return g
 
 
-@dp.message(CommandStart())
-async def start(m: Message):
+def registered(uid):
+    return uid == ADMIN_ID or db.execute("SELECT 1 FROM users WHERE user_id=?", (uid,)).fetchone() is not None
+
+
+def phone_of(uid):
+    r = db.execute("SELECT phone FROM users WHERE user_id=?", (uid,)).fetchone()
+    return r[0] if r else ""
+
+
+async def send_menu(m: Message):
     markup = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🎮 Bron qilish", web_app=WebAppInfo(url=WEBAPP_URL))],
         [InlineKeyboardButton(text="📋 Mening bronlarim", callback_data="my")]])
-    await m.answer("Salom! Arcade Games ga xush kelibsiz 🎮\nKompyuterlarni bron qilish uchun tugmani bosing.", reply_markup=markup)
+    await m.answer("Arcade Games ga xush kelibsiz 🎮\nKompyuterlarni bron qilish uchun tugmani bosing.", reply_markup=markup)
+
+
+@dp.message(CommandStart())
+async def start(m: Message):
+    if not registered(m.from_user.id):
+        kbd = ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="📱 Raqamni yuborish", request_contact=True)]],
+                                  resize_keyboard=True, one_time_keyboard=True)
+        return await m.answer("Salom! Arcade Games ga xush kelibsiz 🎮\nRo'yxatdan o'tish uchun telefon raqamingizni yuboring (pastdagi tugma).", reply_markup=kbd)
+    await send_menu(m)
+
+
+@dp.message(F.contact)
+async def got_contact(m: Message):
+    c = m.contact
+    if c.user_id != m.from_user.id:
+        return await m.answer("Iltimos, o'zingizning raqamingizni tugma orqali yuboring.")
+    phone = c.phone_number if c.phone_number.startswith("+") else "+" + c.phone_number
+    db.execute("INSERT OR REPLACE INTO users(user_id,phone,name,created) VALUES(?,?,?,?)",
+               (m.from_user.id, phone, m.from_user.full_name, now_iso()))
+    db.commit()
+    await m.answer("✅ Ro'yxatdan o'tdingiz!", reply_markup=ReplyKeyboardRemove())
+    await send_menu(m)
+    await bot.send_message(ADMIN_ID, f"🆕 Yangi mijoz: {m.from_user.full_name} {phone}")
 
 
 async def send_my(uid):
@@ -192,7 +228,7 @@ async def admin_cb(c: CallbackQuery):
             await bot.send_message(ADMIN_ID, "Bronlar yo'q.")
     else:
         def stat(since):
-            rows = db.execute("SELECT zone,start,end FROM bookings WHERE status='confirmed' AND start>=?", (since,)).fetchall()
+            rows = db.execute("SELECT zone,start,end,rate FROM bookings WHERE status='confirmed' AND start>=?", (since,)).fetchall()
             return len(rows), sum(price(*r) for r in rows if r[0] in ZONES)
         (tc, tr), (wc, wr) = stat(day), stat((now - timedelta(days=7)).strftime("%Y-%m-%d"))
         pend = len(groups("status='pending'"))
@@ -243,6 +279,8 @@ async def book(req):
     user = check_init(b.get("initData", ""))
     if not user:
         return web.json_response({"error": "Ruxsat yo'q"}, status=403)
+    if not registered(user["id"]):
+        return web.json_response({"error": "Avval ro'yxatdan o'ting", "register": True}, status=403)
     try:
         items = {(i["zone"], int(i["pc"])) for i in b["pcs"]}
         minutes = int(b["minutes"])
@@ -260,8 +298,10 @@ async def book(req):
             return web.json_response({"error": f"{z} {p:03d} shu vaqtda band"}, status=409)
     grp = uuid.uuid4().hex[:8]
     name = user.get("first_name", "") + (" @" + user["username"] if user.get("username") else "")
+    ph = phone_of(user["id"])
+    name += f" 📞 {ph}" if ph else ""
     for z, p in sorted(items):
-        db.execute("INSERT INTO bookings(user_id,name,zone,pc,start,end,grp) VALUES(?,?,?,?,?,?,?)", (user["id"], name, z, p, s_, e_, grp))
+        db.execute("INSERT INTO bookings(user_id,name,zone,pc,start,end,grp,rate) VALUES(?,?,?,?,?,?,?,?)", (user["id"], name, z, p, s_, e_, grp, ZONES[z]["price"]))
     db.commit()
     g = groups("grp=?", (grp,))[0]
     await bot.send_message(ADMIN_ID, f"🆕 Yangi bron\n👤 {name}\n{gtext(g)}",
@@ -311,9 +351,11 @@ async def admin_data(req):
     day = now.strftime("%Y-%m-%d")
 
     def stat(since):
-        rows = db.execute("SELECT zone,start,end FROM bookings WHERE status='confirmed' AND start>=?", (since,)).fetchall()
+        rows = db.execute("SELECT zone,start,end,rate FROM bookings WHERE status='confirmed' AND start>=?", (since,)).fetchall()
         return {"n": len(rows), "sum": sum(price(*r) for r in rows if r[0] in ZONES)}
     return web.json_response({
+        "zones": {z: {"title": v["title"], "price": v["price"]} for z, v in ZONES.items()},
+        "users": db.execute("SELECT COUNT(*) FROM users").fetchone()[0],
         "stats": {"today": stat(day), "week": stat((now - timedelta(days=7)).strftime("%Y-%m-%d"))},
         "pending": [gdict(g) for g in groups("status='pending' AND end>?", (now_iso(),))],
         "today": [gdict(g) for g in groups(f"start LIKE ? AND {ACTIVE}", (day + "%",))]})
@@ -333,6 +375,30 @@ async def admin_decide(req):
         await bot.send_message(g[0][1], f"✅ Bronigiz tasdiqlandi!\n{gtext(g)}")
     else:
         await bot.send_message(g[0][1], f"❌ Afsus, bronigiz bekor qilindi (admin tomonidan).\n{gtext(g)}\nBoshqa vaqt yoki joy tanlab ko'ring.")
+    return web.json_response({"ok": True})
+
+
+async def me(req):
+    u = check_init((await req.json()).get("initData", ""))
+    if not u:
+        return web.json_response({"error": "Ruxsat yo'q"}, status=403)
+    return web.json_response({"registered": registered(u["id"]), "phone": phone_of(u["id"]), "admin": u["id"] == ADMIN_ID})
+
+
+async def admin_price(req):
+    b, u = await admin_auth(req)
+    if not u:
+        return web.json_response({"error": "Ruxsat yo'q"}, status=403)
+    z = b.get("zone")
+    try:
+        p = int(b.get("price"))
+    except (TypeError, ValueError):
+        p = 0
+    if z not in ZONES or not 1000 <= p <= 10_000_000:
+        return web.json_response({"error": "Narx noto'g'ri"}, status=400)
+    ZONES[z]["price"] = p
+    db.execute("INSERT OR REPLACE INTO prices(zone,price) VALUES(?,?)", (z, p))
+    db.commit()
     return web.json_response({"ok": True})
 
 
@@ -357,7 +423,8 @@ async def main():
     app = web.Application()
     app.add_routes([web.get("/", index), web.get("/api/zones", zones), web.get("/api/busy", busy),
                     web.post("/api/book", book), web.post("/api/my", my), web.post("/api/cancel", cancel),
-                    web.get("/api/info", info), web.post("/api/admin", admin_data), web.post("/api/admin/decide", admin_decide)])
+                    web.get("/api/info", info), web.post("/api/admin", admin_data), web.post("/api/admin/decide", admin_decide),
+                    web.post("/api/me", me), web.post("/api/admin/price", admin_price)])
     runner = web.AppRunner(app)
     await runner.setup()
     await web.TCPSite(runner, "0.0.0.0", PORT).start()
