@@ -33,3 +33,10 @@ Eski `club.db` bo'lsa, `status` ustuni avtomatik qo'shiladi.
 
 ## Klub ma'lumotlari ("Aloqa" bo'limi uchun, ixtiyoriy)
 Railway Variables ga qo'shing: `CLUB_ADDRESS`, `CLUB_PHONE`, `CLUB_HOURS`, `ADMIN_USERNAME` (@siz).
+
+## Xususiyatlar va guruh bron
+`bot.py` dagi `ZONES[...]["specs"]` ro'yxatida har zona kompyuterlarining xususiyatlari turadi (Narxlar bo'limida va tanlashda ko'rinadi). Ularni haqiqiyiga almashtiring.
+Mijoz bir bronda 30 tagacha kompyuter va 30 daqiqadan 24 soatgacha istalgan vaqtni tanlay oladi.
+
+## Kompyuter xususiyatlari
+`bot.py` boshidagi `ZONES` ichida har zona uchun `specs` bor (protsessor, videokarta, RAM, monitor, jihozlar). Ular **namuna**, haqiqiy ma'lumotga almashtiring.
