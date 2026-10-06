@@ -162,23 +162,25 @@ async def start(m: Message):
 @dp.message(F.contact)
 async def got_contact(m: Message):
     c = m.contact
-    if c.user_id != m.from_user.id:
+    print("contact keldi:", m.from_user.id, c.user_id)
+    if c.user_id and c.user_id != m.from_user.id:
         return await m.answer("Iltimos, o'zingizning raqamingizni tugma orqali yuboring.")
     phone = c.phone_number if c.phone_number.startswith("+") else "+" + c.phone_number
     db.execute("INSERT OR REPLACE INTO users(user_id,phone,name,created) VALUES(?,?,?,?)",
                (m.from_user.id, phone, m.from_user.full_name, now_iso()))
     db.commit()
-    await m.answer("✅ Ro'yxatdan o'tdingiz!", reply_markup=ReplyKeyboardRemove())
+    await m.answer("✅ Ro'yxatdan o'tdingiz! Endi web app orqali bron qilishingiz mumkin.", reply_markup=ReplyKeyboardRemove())
     await send_menu(m)
-    await bot.send_message(ADMIN_ID, f"🆕 Yangi mijoz: {m.from_user.full_name} {phone}")
+    try:
+        await bot.send_message(ADMIN_ID, f"🆕 Yangi mijoz: {m.from_user.full_name} {phone}")
+    except Exception as e:
+        print("admin xabari yuborilmadi:", e)
 
 
-async def send_my(uid):
-    gs = groups(f"user_id=? AND {ACTIVE} AND end>?", (uid, now_iso()))
-    if not gs:
-        return await bot.send_message(uid, "Sizda faol bronlar yo'q.")
-    for g in gs:
-        await bot.send_message(uid, gtext(g), reply_markup=kb(("🚫 Bekor qilish", f"cx:{g[0][0]}")))
+@dp.message(Command("status"))
+async def status_cmd(m: Message):
+    ph = phone_of(m.from_user.id)
+    await m.answer(f"Bot versiyasi: {APP_VERSION}\nRo'yxatdan o'tgan: {'ha, ' + ph if ph else "yo'q"}\nID: {m.from_user.id}")
 
 
 @dp.message(Command("my"))
@@ -254,7 +256,7 @@ async def decide_cb(c: CallbackQuery):
 
 
 # ---------- WEB ----------
-APP_VERSION = "v4"
+APP_VERSION = "v5"
 
 
 async def version(_):
@@ -435,6 +437,10 @@ async def main():
     runner = web.AppRunner(app)
     await runner.setup()
     await web.TCPSite(runner, "0.0.0.0", PORT).start()
+    try:
+        INFO["bot"] = (await bot.get_me()).username
+    except Exception as e:
+        print("get_me xatosi:", e)
     asyncio.create_task(reminder_loop())
     await dp.start_polling(bot)
 
