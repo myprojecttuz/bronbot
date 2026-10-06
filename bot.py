@@ -135,7 +135,7 @@ async def do_cancel(uid, id_):
 
 
 def registered(uid):
-    return uid == ADMIN_ID or db.execute("SELECT 1 FROM users WHERE user_id=?", (uid,)).fetchone() is not None
+    return db.execute("SELECT 1 FROM users WHERE user_id=?", (uid,)).fetchone() is not None
 
 
 def phone_of(uid):
