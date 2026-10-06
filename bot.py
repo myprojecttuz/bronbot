@@ -254,8 +254,15 @@ async def decide_cb(c: CallbackQuery):
 
 
 # ---------- WEB ----------
+APP_VERSION = "v4"
+
+
+async def version(_):
+    return web.json_response({"version": APP_VERSION})
+
+
 async def index(_):
-    return web.FileResponse(os.path.join(os.path.dirname(os.path.abspath(__file__)), "index.html"))
+    return web.FileResponse(os.path.join(os.path.dirname(os.path.abspath(__file__)), "index.html"), headers={"Cache-Control": "no-store"})
 
 
 async def zones(_):
@@ -423,7 +430,7 @@ async def main():
     app = web.Application()
     app.add_routes([web.get("/", index), web.get("/api/zones", zones), web.get("/api/busy", busy),
                     web.post("/api/book", book), web.post("/api/my", my), web.post("/api/cancel", cancel),
-                    web.get("/api/info", info), web.post("/api/admin", admin_data), web.post("/api/admin/decide", admin_decide),
+                    web.get("/api/info", info), web.get("/api/version", version), web.post("/api/admin", admin_data), web.post("/api/admin/decide", admin_decide),
                     web.post("/api/me", me), web.post("/api/admin/price", admin_price)])
     runner = web.AppRunner(app)
     await runner.setup()
