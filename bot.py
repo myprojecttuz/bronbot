@@ -2,9 +2,10 @@ import asyncio, os, json, hmac, hashlib, sqlite3, uuid
 from urllib.parse import parse_qsl
 from datetime import datetime, timedelta
 from aiohttp import web
+from html import escape
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command, CommandStart
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove, CallbackQuery, Message, WebAppInfo, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import BotCommand, MenuButtonWebApp, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove, CallbackQuery, Message, WebAppInfo, InlineKeyboardMarkup, InlineKeyboardButton
 
 TOKEN = os.environ["BOT_TOKEN"]
 ADMIN_ID = int(os.environ["ADMIN_ID"])
@@ -41,6 +42,7 @@ ZONES = {
                "specs": spec(*_BASE, "Royal Kludge M87", "VGN ATK Mad G Pro", "Razer BlackShark V2 X")},
 }
 
+PCZONE = {pc: z for z, v in ZONES.items() for pc in v["pcs"]}
 bot = Bot(TOKEN)
 dp = Dispatcher()
 db = sqlite3.connect(os.getenv("DB_PATH", "club.db"), check_same_thread=False)
@@ -55,6 +57,7 @@ for col in ("status TEXT DEFAULT 'pending'", "grp TEXT", "rate INTEGER"):
         pass
 db.execute("CREATE TABLE IF NOT EXISTS users(user_id INTEGER PRIMARY KEY, phone TEXT, name TEXT, created TEXT)")
 db.execute("CREATE TABLE IF NOT EXISTS prices(zone TEXT PRIMARY KEY, price INTEGER)")
+db.execute("CREATE TABLE IF NOT EXISTS support(msg_id INTEGER PRIMARY KEY, user_id INTEGER)")
 for _z, _p in db.execute("SELECT zone,price FROM prices").fetchall():
     if _z in ZONES:
         ZONES[_z]["price"] = _p
@@ -106,7 +109,7 @@ def total(g):
 
 def gtext(g):
     r = g[0]
-    return f"🖥 {len(g)} ta: {pcs_text(g)}\n🕒 {r[5][5:10]} {r[5][11:]}–{r[6][11:]}\n💰 {total(g):,} so'm\n{ST[r[7]]}"
+    return f"🖥 {len(g)} ta: {pcs_text(g)}\n🕒 {r[5][5:10]} {r[5][11:]}–{r[6][11:]}\n💰 Klubda to'lanadi: {total(g):,} so'm\n{ST[r[7]]}"
 
 
 def mark(g, col, val=1):
@@ -143,11 +146,28 @@ def phone_of(uid):
     return r[0] if r else ""
 
 
-async def send_menu(m: Message):
-    markup = InlineKeyboardMarkup(inline_keyboard=[
+WELCOME = (
+    "🎮 <b>Arcade Games</b> ga xush kelibsiz!\n\n"
+    "Kompyuter yoki zonani oldindan <b>bepul</b> bron qiling. To'lov faqat klubga kelganingizda.\n\n"
+    "<b>Qanday ishlaydi:</b>\n"
+    "1️⃣ «Bron qilish» tugmasini bosing\n"
+    "2️⃣ Zona yoki kompyuterni tanlang\n"
+    "3️⃣ Kun, soat va davomiylikni belgilang\n"
+    "4️⃣ Admin tasdiqlaydi, sizga xabar keladi\n\n"
+    "Savol bo'lsa: /support"
+)
+
+
+def menu_markup():
+    return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🎮 Bron qilish", web_app=WebAppInfo(url=WEBAPP_URL))],
-        [InlineKeyboardButton(text="📋 Mening bronlarim", callback_data="my")]])
-    await m.answer("Arcade Games ga xush kelibsiz 🎮\nKompyuterlarni bron qilish uchun tugmani bosing.", reply_markup=markup)
+        [InlineKeyboardButton(text="📋 Mening bronlarim", callback_data="my"),
+         InlineKeyboardButton(text="🖥 Zonalar", web_app=WebAppInfo(url=WEBAPP_URL + "?tab=prices"))],
+        [InlineKeyboardButton(text="💬 Yordam", callback_data="support")]])
+
+
+async def send_menu(m: Message):
+    await m.answer(WELCOME, parse_mode="HTML", reply_markup=menu_markup())
 
 
 @dp.message(CommandStart())
@@ -155,7 +175,8 @@ async def start(m: Message):
     if not registered(m.from_user.id):
         kbd = ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="📱 Raqamni yuborish", request_contact=True)]],
                                   resize_keyboard=True, one_time_keyboard=True)
-        return await m.answer("Salom! Arcade Games ga xush kelibsiz 🎮\nRo'yxatdan o'tish uchun telefon raqamingizni yuboring (pastdagi tugma).", reply_markup=kbd)
+        return await m.answer("🎮 <b>Arcade Games</b> ga xush kelibsiz!\n\nBron qilish uchun avval telefon raqamingizni tasdiqlang: pastdagi <b>«📱 Raqamni yuborish»</b> tugmasini bosing.\n\nBron <b>bepul</b>, to'lov faqat klubga kelganingizda.",
+                              parse_mode="HTML", reply_markup=kbd)
     await send_menu(m)
 
 
@@ -221,7 +242,7 @@ async def admin_cb(c: CallbackQuery):
     act, now = c.data[4:], datetime.now()
     day = now.strftime("%Y-%m-%d")
     if act in ("today", "pending"):
-        gs = groups(f"start LIKE ? AND {ACTIVE}", (day + "%",)) if act == "today" else groups("status='pending' AND end>?", (now_iso(),))
+        gs = groups(f"start LIKE ? AND {ACTIVE} AND user_id>0", (day + "%",)) if act == "today" else groups("status='pending' AND end>?", (now_iso(),))
         for g in gs:
             i = g[0][0]
             btns = [("✅ Tasdiqlash", f"ok:{i}"), ("❌ Rad etish", f"no:{i}")] if act == "pending" else [("🚫 Bekor qilish", f"no:{i}")]
@@ -230,7 +251,7 @@ async def admin_cb(c: CallbackQuery):
             await bot.send_message(ADMIN_ID, "Bronlar yo'q.")
     else:
         def stat(since):
-            rows = db.execute("SELECT zone,start,end,rate FROM bookings WHERE status='confirmed' AND start>=?", (since,)).fetchall()
+            rows = db.execute("SELECT zone,start,end,rate FROM bookings WHERE status='confirmed' AND user_id>0 AND start>=?", (since,)).fetchall()
             return len(rows), sum(price(*r) for r in rows if r[0] in ZONES)
         (tc, tr), (wc, wr) = stat(day), stat((now - timedelta(days=7)).strftime("%Y-%m-%d"))
         pend = len(groups("status='pending'"))
@@ -256,7 +277,68 @@ async def decide_cb(c: CallbackQuery):
 
 
 # ---------- WEB ----------
-APP_VERSION = "v5"
+SUPPORT_WAIT = set()
+
+
+def support_text():
+    t = "💬 <b>Yordam markazi</b>\n"
+    for ic, k in (("📞", "phone"), ("🕒", "hours"), ("📍", "address")):
+        if INFO.get(k):
+            t += f"\n{ic} {escape(INFO[k])}"
+    return t + "\n\nSavolingizni shu yerga yozing, admin javob beradi."
+
+
+async def send_support(uid):
+    SUPPORT_WAIT.add(uid)
+    rows = [[InlineKeyboardButton(text="👤 Adminga yozish", url="https://t.me/" + INFO["admin"])]] if INFO.get("admin") else []
+    await bot.send_message(uid, support_text(), parse_mode="HTML",
+                           reply_markup=InlineKeyboardMarkup(inline_keyboard=rows) if rows else None)
+
+
+@dp.message(Command("support"))
+async def support_cmd(m: Message):
+    await send_support(m.from_user.id)
+
+
+@dp.callback_query(F.data == "support")
+async def support_cb(c: CallbackQuery):
+    await c.answer()
+    await send_support(c.from_user.id)
+
+
+@dp.message(F.reply_to_message, F.text, F.from_user.id == ADMIN_ID)
+async def admin_reply(m: Message):
+    r = db.execute("SELECT user_id FROM support WHERE msg_id=?", (m.reply_to_message.message_id,)).fetchone()
+    if not r:
+        return
+    await bot.send_message(r[0], f"💬 <b>Admin javobi:</b>\n{escape(m.text)}", parse_mode="HTML")
+    await m.answer("✅ Javob yuborildi")
+
+
+@dp.message(F.text)
+async def any_text(m: Message):
+    if m.text.startswith("/"):
+        return
+    uid = m.from_user.id
+    if uid in SUPPORT_WAIT:
+        SUPPORT_WAIT.discard(uid)
+        ph = phone_of(uid)
+        who = escape(m.from_user.full_name) + (f" 📞 {ph}" if ph else "")
+        sent = await bot.send_message(ADMIN_ID, f"💬 <b>Savol</b>\n👤 {who}\n\n{escape(m.text)}\n\n<i>Javob berish uchun shu xabarga reply qiling.</i>", parse_mode="HTML")
+        db.execute("INSERT OR REPLACE INTO support(msg_id,user_id) VALUES(?,?)", (sent.message_id, uid))
+        db.commit()
+        return await m.answer("✅ Xabaringiz adminga yuborildi. Javobni shu yerda olasiz.")
+    await m.answer("Buyruqlar:\n/start: bosh menyu\n/my: mening bronlarim\n/support: yordam")
+
+
+async def status_api(_):
+    now = datetime.now()
+    rows = db.execute(f"SELECT pc,zone,start,end,status,user_id FROM bookings WHERE {ACTIVE} AND end>? AND start<?",
+                      (now.isoformat(timespec="minutes"), (now + timedelta(hours=24)).isoformat(timespec="minutes"))).fetchall()
+    return web.json_response([{"pc": r[0], "zone": r[1], "start": r[2], "end": r[3], "status": r[4], "walkin": r[5] == 0} for r in rows])
+
+
+APP_VERSION = "v7"
 
 
 async def version(_):
@@ -315,7 +397,7 @@ async def book(req):
     g = groups("grp=?", (grp,))[0]
     await bot.send_message(ADMIN_ID, f"🆕 Yangi bron\n👤 {name}\n{gtext(g)}",
                            reply_markup=kb(("✅ Tasdiqlash", f"ok:{g[0][0]}"), ("❌ Rad etish", f"no:{g[0][0]}")))
-    await bot.send_message(user["id"], f"📨 Bron yuborildi, admin tasdiqlashini kuting.\n{gtext(g)}",
+    await bot.send_message(user["id"], f"📨 Bron yuborildi, admin tasdiqlashini kuting.\n{gtext(g)}\n💳 Bron bepul, to'lov klubga kelganingizda.",
                            reply_markup=kb(("📋 Mening bronlarim", "my")))
     return web.json_response({"ok": True})
 
@@ -360,14 +442,14 @@ async def admin_data(req):
     day = now.strftime("%Y-%m-%d")
 
     def stat(since):
-        rows = db.execute("SELECT zone,start,end,rate FROM bookings WHERE status='confirmed' AND start>=?", (since,)).fetchall()
+        rows = db.execute("SELECT zone,start,end,rate FROM bookings WHERE status='confirmed' AND user_id>0 AND start>=?", (since,)).fetchall()
         return {"n": len(rows), "sum": sum(price(*r) for r in rows if r[0] in ZONES)}
     return web.json_response({
         "zones": {z: {"title": v["title"], "price": v["price"]} for z, v in ZONES.items()},
         "users": db.execute("SELECT COUNT(*) FROM users").fetchone()[0],
         "stats": {"today": stat(day), "week": stat((now - timedelta(days=7)).strftime("%Y-%m-%d"))},
         "pending": [gdict(g) for g in groups("status='pending' AND end>?", (now_iso(),))],
-        "today": [gdict(g) for g in groups(f"start LIKE ? AND {ACTIVE}", (day + "%",))]})
+        "today": [gdict(g) for g in groups(f"start LIKE ? AND {ACTIVE} AND user_id>0", (day + "%",))]})
 
 
 async def admin_decide(req):
@@ -384,6 +466,57 @@ async def admin_decide(req):
         await bot.send_message(g[0][1], f"✅ Bronigiz tasdiqlandi!\n{gtext(g)}")
     else:
         await bot.send_message(g[0][1], f"❌ Afsus, bronigiz bekor qilindi (admin tomonidan).\n{gtext(g)}\nBoshqa vaqt yoki joy tanlab ko'ring.")
+    return web.json_response({"ok": True})
+
+
+def _pcs_arg(b):
+    try:
+        pcs = sorted({int(x) for x in b.get("pcs", [])})
+    except (TypeError, ValueError):
+        return []
+    return pcs if pcs and all(p in PCZONE for p in pcs) else []
+
+
+async def admin_walkin(req):
+    b, u = await admin_auth(req)
+    if not u:
+        return web.json_response({"error": "Ruxsat yo'q"}, status=403)
+    pcs = _pcs_arg(b)
+    try:
+        mins = int(b.get("minutes", 60))
+    except (TypeError, ValueError):
+        mins = 0
+    if not pcs or not 15 <= mins <= 1440:
+        return web.json_response({"error": "Noto'g'ri ma'lumot"}, status=400)
+    now = datetime.now()
+    s_ = now.isoformat(timespec="minutes")
+    e_ = (now + timedelta(minutes=mins)).isoformat(timespec="minutes")
+    for p in pcs:
+        c = db.execute(f"SELECT start FROM bookings WHERE pc=? AND {ACTIVE} AND user_id>0 AND start<? AND end>? ORDER BY start",
+                       (p, e_, s_)).fetchone()
+        if c:
+            return web.json_response({"error": f"PC {p:03d}: soat {c[0][11:]} da bron bor. Qisqaroq vaqt tanlang yoki avval bronni bekor qiling."}, status=409)
+    db.execute(f"UPDATE bookings SET status='cancelled' WHERE user_id=0 AND pc IN ({','.join('?' * len(pcs))}) AND {ACTIVE} AND end>?", (*pcs, s_))
+    gid = None
+    for p in pcs:
+        cur = db.execute("INSERT INTO bookings(user_id,name,zone,pc,start,end,status,grp,rate) VALUES(0,?,?,?,?,?,'confirmed',?,?)",
+                         ("Zalda (admin belgiladi)", PCZONE[p], p, s_, e_, gid, ZONES[PCZONE[p]]["price"]))
+        gid = gid or cur.lastrowid
+        db.execute("UPDATE bookings SET grp=? WHERE id=?", (gid, cur.lastrowid))
+    db.commit()
+    return web.json_response({"ok": True})
+
+
+async def admin_free(req):
+    b, u = await admin_auth(req)
+    if not u:
+        return web.json_response({"error": "Ruxsat yo'q"}, status=403)
+    pcs = _pcs_arg(b)
+    if not pcs:
+        return web.json_response({"error": "Noto'g'ri ma'lumot"}, status=400)
+    db.execute(f"UPDATE bookings SET status='cancelled' WHERE user_id=0 AND pc IN ({','.join('?' * len(pcs))}) AND {ACTIVE} AND end>?",
+               (*pcs, datetime.now().isoformat(timespec="minutes")))
+    db.commit()
     return web.json_response({"ok": True})
 
 
@@ -416,10 +549,10 @@ async def reminder_loop():
         try:
             now = datetime.now()
             soon = (now + timedelta(minutes=REMIND_MIN)).isoformat(timespec="minutes")
-            for g in groups("status='confirmed' AND reminded=0 AND start<=?", (soon,)):
+            for g in groups("status='confirmed' AND user_id>0 AND reminded=0 AND start<=?", (soon,)):
                 await bot.send_message(g[0][1], f"⏰ Eslatma: bronigiz {REMIND_MIN} daqiqadan keyin boshlanadi.\n{gtext(g)}")
                 mark(g, "reminded")
-            for g in groups("status='confirmed' AND started=0 AND start<=?", (now.isoformat(timespec="minutes"),)):
+            for g in groups("status='confirmed' AND user_id>0 AND started=0 AND start<=?", (now.isoformat(timespec="minutes"),)):
                 await bot.send_message(g[0][1], f"🎮 Vaqtingiz boshlandi! Kutib turibmiz!\n{gtext(g)}")
                 await bot.send_message(ADMIN_ID, f"🔔 Mijoz vaqti boshlandi: {g[0][2]}\n{gtext(g)}")
                 mark(g, "started")
@@ -432,8 +565,9 @@ async def main():
     app = web.Application()
     app.add_routes([web.get("/", index), web.get("/api/zones", zones), web.get("/api/busy", busy),
                     web.post("/api/book", book), web.post("/api/my", my), web.post("/api/cancel", cancel),
-                    web.get("/api/info", info), web.get("/api/version", version), web.post("/api/admin", admin_data), web.post("/api/admin/decide", admin_decide),
-                    web.post("/api/me", me), web.post("/api/admin/price", admin_price)])
+                    web.get("/api/info", info), web.get("/api/version", version), web.get("/api/status", status_api), web.post("/api/admin", admin_data), web.post("/api/admin/decide", admin_decide),
+                    web.post("/api/me", me), web.post("/api/admin/price", admin_price),
+                    web.post("/api/admin/walkin", admin_walkin), web.post("/api/admin/free", admin_free)])
     runner = web.AppRunner(app)
     await runner.setup()
     await web.TCPSite(runner, "0.0.0.0", PORT).start()
@@ -441,6 +575,13 @@ async def main():
         INFO["bot"] = (await bot.get_me()).username
     except Exception as e:
         print("get_me xatosi:", e)
+    try:
+        await bot.set_my_commands([BotCommand(command="start", description="Bosh menyu"),
+                                   BotCommand(command="my", description="Mening bronlarim"),
+                                   BotCommand(command="support", description="Yordam")])
+        await bot.set_chat_menu_button(menu_button=MenuButtonWebApp(text="🎮 Bron", web_app=WebAppInfo(url=WEBAPP_URL)))
+    except Exception as e:
+        print("menyu sozlanmadi:", e)
     asyncio.create_task(reminder_loop())
     await dp.start_polling(bot)
 
