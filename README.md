@@ -50,8 +50,14 @@ Jadvallarda Row Level Security yoqiladi, shuning uchun telefon raqamlarga Supaba
 Bron qilinganda, tasdiqlanganda, rad etilganda mijozga chiroyli kartochka yuboriladi. Tasdiqlangan bron boshlanishigacha **har soatda** "N soat qoldi" xabari keladi
 (oxirgi `HOURLY_MAX_H` = 24 soat ichida; kechasi 23:00–08:00 ovozsiz), keyin 30 daqiqa oldin eslatma va boshlanish vaqtida xabar.
 
+## Aksiyalar va reklama
+Admin sifatida Mini App → **Admin → Aksiya** bo'limidan aksiya qo'shasiz: sarlavha, matn, rasm havolasi (ixtiyoriy), tugma (Bron qilish / Paketlar / Zonalar / Aloqa / havola), tugash sanasi.
+- **Ilovada:** mijoz kirganda popup chiqadi (har aksiya 3 soatda bir marta), chekkadan sirpanib chiqadigan xabar vaqti-vaqti bilan eslatadi, yuqoridagi 🎁 belgi doim ochiq turadi.
+- **Botda:** «Botda hamma mijozga yuborish» belgilansa, aksiya 10:00–21:00 oralig'ida (`PUSH_FROM`, `PUSH_TO`) hamma ro'yxatdan o'tgan mijozga yuboriladi. «Takrorlash» ga kun kiritilsa (masalan 3), shuncha kunda qayta yuboriladi, 0 bo'lsa bir marta. «📣 Hoziroq yuborish» tugmasi darrov yuboradi.
+- Mijoz botda **🎁 Aksiyalar** tugmasi yoki `/promo` orqali faol aksiyalarni istalgan vaqt ko'radi.
+
 ## Versiyani tekshirish
-Deploydan keyin `https://sizning-domen.uz/api/version` yoki botda `/status` ni oching. Hozirgi versiya: **v12**. Eski versiya chiqsa, yangi deploy ishga tushmagan: Railway → Deployments → Logs ni tekshiring.
+Deploydan keyin `https://sizning-domen.uz/api/version` yoki botda `/status` ni oching. Hozirgi versiya: **v13**. Eski versiya chiqsa, yangi deploy ishga tushmagan: Railway → Deployments → Logs ni tekshiring.
 Kod Python 3.10+ da ishlaydi.
 
 ## Xususiyatlar va guruh bron

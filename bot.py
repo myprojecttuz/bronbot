@@ -5,6 +5,7 @@ from aiohttp import web
 from html import escape
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command, CommandStart
+from aiogram.exceptions import TelegramRetryAfter
 from aiogram.types import BotCommand, MenuButtonWebApp, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove, CallbackQuery, Message, WebAppInfo, InlineKeyboardMarkup, InlineKeyboardButton
 
 logging.basicConfig(level=logging.INFO)
@@ -98,7 +99,7 @@ class PgDB:
         elif head.startswith("ALTER TABLE"):
             s = re.sub(r"\bINTEGER\b", "BIGINT", s.replace("ADD COLUMN ", "ADD COLUMN IF NOT EXISTS "))
         s = re.sub(r"\bend\b", '"end"', s).replace("?", "%s")
-        if head.startswith("INSERT INTO bookings"):
+        if head.startswith(("INSERT INTO bookings", "INSERT INTO promos")):
             s += " RETURNING id"
         return s
 
@@ -141,8 +142,11 @@ db.execute("CREATE TABLE IF NOT EXISTS users(user_id INTEGER PRIMARY KEY, phone 
 db.execute("CREATE TABLE IF NOT EXISTS prices(zone TEXT PRIMARY KEY, price INTEGER)")
 db.execute("CREATE TABLE IF NOT EXISTS support(msg_id INTEGER PRIMARY KEY, user_id INTEGER)")
 db.execute("CREATE TABLE IF NOT EXISTS settings(k TEXT PRIMARY KEY, v TEXT)")
+db.execute("""CREATE TABLE IF NOT EXISTS promos(
+    id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT, body TEXT, btn TEXT, action TEXT, url TEXT, image TEXT,
+    active INTEGER DEFAULT 1, expires TEXT, push INTEGER DEFAULT 0, every_days INTEGER DEFAULT 0, last_push TEXT, created TEXT)""")
 if PG:  # Supabase ochiq API orqali jadvallarga kirib bo'lmasligi uchun (telefon raqamlar bor)
-    for _t in ("bookings", "users", "prices", "support", "settings"):
+    for _t in ("bookings", "users", "prices", "support", "settings", "promos"):
         db.execute(f"ALTER TABLE {_t} ENABLE ROW LEVEL SECURITY")
 HRS = "(EXTRACT(EPOCH FROM (end::timestamp - start::timestamp)) / 3600.0)" if PG else "((julianday(end) - julianday(start)) * 24)"
 for _z, _p in db.execute("SELECT zone,price FROM prices").fetchall():
@@ -304,7 +308,8 @@ def menu_markup():
         [InlineKeyboardButton(text="🎮 Bron qilish", web_app=WebAppInfo(url=WEBAPP_URL))],
         [InlineKeyboardButton(text="📋 Mening bronlarim", callback_data="my"),
          InlineKeyboardButton(text="🖥 Zonalar", web_app=WebAppInfo(url=WEBAPP_URL + "?tab=prices"))],
-        [InlineKeyboardButton(text="💬 Yordam", callback_data="support")]])
+        [InlineKeyboardButton(text="🎁 Aksiyalar", callback_data="promos"),
+         InlineKeyboardButton(text="💬 Yordam", callback_data="support")]])
 
 
 def open_markup():
@@ -470,6 +475,11 @@ async def support_cb(c: CallbackQuery):
     await send_support(c.from_user.id)
 
 
+@dp.message(Command("promo"))
+async def promo_cmd(m: Message):
+    await send_promos_to(m.from_user.id)
+
+
 @dp.message(F.reply_to_message, F.text, F.from_user.id == ADMIN_ID)
 async def admin_reply(m: Message):
     r = db.execute("SELECT user_id FROM support WHERE msg_id=?", (m.reply_to_message.message_id,)).fetchone()
@@ -502,7 +512,7 @@ async def status_api(_):
     return web.json_response([{"pc": r[0], "zone": r[1], "start": r[2], "end": r[3], "status": r[4], "walkin": r[5] == 0} for r in rows])
 
 
-APP_VERSION = "v12"
+APP_VERSION = "v13"
 
 
 async def version(_):
@@ -826,6 +836,171 @@ async def admin_price(req):
     return web.json_response({"ok": True})
 
 
+# ---------- AKSIYALAR / REKLAMA ----------
+PCOLS = "id,title,body,btn,action,url,image,active,expires,push,every_days,last_push,created"
+PACTIONS = ("none", "book", "packages", "prices", "info", "url")
+PUSH_FROM, PUSH_TO = 10, 21  # botda aksiya yuborish oynasi (Toshkent soati): kechasi bezovta qilmaymiz
+BG = set()
+
+
+def promos(where="1=1", params=()):
+    keys = PCOLS.split(",")
+    return [dict(zip(keys, r)) for r in db.execute(f"SELECT {PCOLS} FROM promos WHERE {where} ORDER BY id DESC", params).fetchall()]
+
+
+def promo_live(p):
+    return bool(p["active"]) and (not p["expires"] or p["expires"] >= tnow().strftime("%Y-%m-%d"))
+
+
+def promo_text(p):
+    return f"🎁 <b>{escape(p['title'])}</b>" + (f"\n\n{escape(p['body'])}" if p["body"] else "")
+
+
+def promo_markup(p):
+    act = p["action"]
+    label = p["btn"] or {"book": "🎮 Bron qilish", "packages": "📦 Paketlar", "prices": "🖥 Zonalar", "info": "ℹ️ Aloqa", "url": "Ko'rish"}.get(act, "")
+    if act == "url" and p["url"]:
+        return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=label, url=p["url"])]])
+    if act in ("book", "packages", "prices", "info"):
+        url = WEBAPP_URL if act == "book" else f"{WEBAPP_URL}?tab={act}"
+        return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=label, web_app=WebAppInfo(url=url))]])
+    return None
+
+
+async def push_promo(uid, p):
+    """Bitta mijozga aksiyani yuboradi. Rasm yuklanmasa, matn bilan yuboradi."""
+    for _ in range(2):
+        try:
+            if p["image"]:
+                try:
+                    await bot.send_photo(uid, p["image"], caption=promo_text(p)[:1024], parse_mode="HTML", reply_markup=promo_markup(p))
+                    return True
+                except TelegramRetryAfter:
+                    raise
+                except Exception as e:
+                    print("aksiya rasmi yuborilmadi, matn bilan:", repr(e))
+            await bot.send_message(uid, promo_text(p), parse_mode="HTML", reply_markup=promo_markup(p))
+            return True
+        except TelegramRetryAfter as e:
+            await asyncio.sleep(e.retry_after + 1)
+        except Exception as e:  # bot bloklangan va h.k.
+            print("aksiya yuborilmadi:", uid, repr(e))
+            return False
+    return False
+
+
+async def send_promo(p):
+    uids = [r[0] for r in db.execute("SELECT user_id FROM users").fetchall()]
+    ok = 0
+    for uid in uids:
+        ok += 1 if await push_promo(uid, p) else 0
+        await asyncio.sleep(0.06)  # Telegram limiti: sekundiga ~20 xabar
+    print(f"aksiya #{p['id']}: {ok}/{len(uids)} ta mijozga yuborildi")
+    return ok
+
+
+def spawn(coro):
+    t = asyncio.create_task(coro)
+    BG.add(t)
+    t.add_done_callback(BG.discard)
+
+
+async def promo_loop():
+    while True:
+        try:
+            now = tnow()
+            if PUSH_FROM <= now.hour < PUSH_TO:
+                for p in promos("push=1"):
+                    if not promo_live(p):
+                        continue
+                    lp = p["last_push"]
+                    due = not lp or (p["every_days"] and now - datetime.fromisoformat(lp) >= timedelta(days=p["every_days"]))
+                    if due:
+                        db.execute("UPDATE promos SET last_push=? WHERE id=?", (now_iso(), p["id"]))
+                        db.commit()
+                        await send_promo(p)
+        except Exception as e:
+            print("promo loop xatosi:", repr(e))
+        await asyncio.sleep(60)
+
+
+async def send_promos_to(uid):
+    live = [p for p in promos() if promo_live(p)]
+    if not live:
+        return await notify(uid, "🎁 Hozircha faol aksiyalar yo'q. Yangilik bo'lsa, birinchilardan bo'lib xabar beramiz!")
+    for p in live[:5]:
+        await push_promo(uid, p)
+
+
+@dp.callback_query(F.data == "promos")
+async def promos_cb(c: CallbackQuery):
+    await c.answer()
+    await send_promos_to(c.from_user.id)
+
+
+async def api_promos(_):
+    return web.json_response([{k: p[k] for k in ("id", "title", "body", "btn", "action", "url", "image")} for p in promos() if promo_live(p)])
+
+
+async def admin_promo(req):
+    b, u = await admin_auth(req)
+    if not u:
+        return web.json_response({"error": "Ruxsat yo'q"}, status=403)
+    op = b.get("op")
+    if op == "list":
+        return web.json_response({"items": [{**p, "live": promo_live(p)} for p in promos()]})
+    clean = lambda x, n: str(x or "").strip()[:n]
+    err = lambda t: web.json_response({"error": t}, status=400)
+    try:
+        pid = int(b.get("id") or 0)
+    except (TypeError, ValueError):
+        pid = 0
+    cur = promos("id=?", (pid,)) if pid else []
+    if op in ("toggle", "delete", "send"):
+        if not cur:
+            return web.json_response({"error": "Aksiya topilmadi"}, status=404)
+        if op == "toggle":
+            db.execute("UPDATE promos SET active=? WHERE id=?", (0 if cur[0]["active"] else 1, pid))
+        elif op == "delete":
+            db.execute("DELETE FROM promos WHERE id=?", (pid,))
+        else:
+            db.execute("UPDATE promos SET last_push=? WHERE id=?", (now_iso(), pid))
+            db.commit()
+            spawn(send_promo(cur[0]))
+            return web.json_response({"ok": True, "users": db.execute("SELECT COUNT(*) FROM users").fetchone()[0]})
+        db.commit()
+        return web.json_response({"ok": True})
+    if op != "save":
+        return err("Noto'g'ri amal")
+    title, body, btn = clean(b.get("title"), 80), clean(b.get("body"), 700), clean(b.get("btn"), 30)
+    if not title:
+        return err("Sarlavha kiriting")
+    action = b.get("action") if b.get("action") in PACTIONS else "none"
+    url, image, expires = clean(b.get("url"), 300), clean(b.get("image"), 300), clean(b.get("expires"), 10)
+    if action == "url" and not re.match(r"https?://", url):
+        return err("Havola https:// bilan boshlanishi kerak")
+    if image and not image.startswith("https://"):
+        return err("Rasm havolasi https:// bilan boshlanishi kerak")
+    if expires:
+        try:
+            datetime.strptime(expires, "%Y-%m-%d")
+        except ValueError:
+            return err("Tugash sanasi noto'g'ri")
+    try:
+        every = min(60, max(0, int(b.get("every_days") or 0)))
+    except (TypeError, ValueError):
+        every = 0
+    push, active = (1 if b.get("push") else 0), (1 if b.get("active", True) else 0)
+    if cur:
+        db.execute("UPDATE promos SET title=?,body=?,btn=?,action=?,url=?,image=?,active=?,expires=?,push=?,every_days=? WHERE id=?",
+                   (title, body, btn, action, url, image, active, expires, push, every, pid))
+    else:
+        db.execute("INSERT INTO promos(title,body,btn,action,url,image,active,expires,push,every_days,created) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                   (title, body, btn, action, url, image, active, expires, push, every, now_iso()))
+    db.commit()
+    return web.json_response({"ok": True})
+
+
 async def reminder_loop():
     while True:
         try:
@@ -864,7 +1039,8 @@ async def main():
                     web.get("/api/info", info), web.get("/api/version", version), web.get("/api/status", status_api), web.post("/api/admin", admin_data), web.post("/api/admin/decide", admin_decide),
                     web.post("/api/me", me), web.post("/api/admin/price", admin_price),
                     web.post("/api/admin/walkin", admin_walkin), web.post("/api/admin/free", admin_free),
-                    web.get("/api/packages", packages), web.post("/api/admin/stats", admin_stats), web.post("/api/admin/contacts", admin_contacts)])
+                    web.get("/api/packages", packages), web.post("/api/admin/stats", admin_stats), web.post("/api/admin/contacts", admin_contacts),
+                    web.get("/api/promos", api_promos), web.post("/api/admin/promo", admin_promo)])
     runner = web.AppRunner(app)
     await runner.setup()
     await web.TCPSite(runner, "0.0.0.0", PORT).start()
@@ -879,11 +1055,13 @@ async def main():
     try:
         await bot.set_my_commands([BotCommand(command="start", description="Bosh menyu"),
                                    BotCommand(command="my", description="Mening bronlarim"),
+                                   BotCommand(command="promo", description="Aksiyalar"),
                                    BotCommand(command="support", description="Yordam")])
         await bot.set_chat_menu_button(menu_button=MenuButtonWebApp(text="🎮 Bron", web_app=WebAppInfo(url=WEBAPP_URL)))
     except Exception as e:
         print("menyu sozlanmadi:", e)
     asyncio.create_task(reminder_loop())
+    asyncio.create_task(promo_loop())
     await dp.start_polling(bot)
 
 
