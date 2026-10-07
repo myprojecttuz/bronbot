@@ -1,6 +1,6 @@
 import asyncio, os, re, json, hmac, hashlib, sqlite3, uuid, logging
 from urllib.parse import parse_qsl
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from aiohttp import web
 from html import escape
 from aiogram import Bot, Dispatcher, F
@@ -12,6 +12,13 @@ TOKEN = os.environ["BOT_TOKEN"]
 ADMIN_ID = int(os.environ["ADMIN_ID"])
 WEBAPP_URL = os.environ["WEBAPP_URL"]
 PORT = int(os.getenv("PORT", 8080))
+TZ = timezone(timedelta(hours=5))  # Toshkent: UTC+5 (yozgi/qishki vaqt yo'q), server qayerda bo'lmasin
+
+
+def tnow():
+    return datetime.now(TZ).replace(tzinfo=None)
+
+
 REMIND_MIN = 30  # bron boshlanishidan necha daqiqa oldin eslatish
 INFO = {k: os.getenv(v, "") for k, v in {"address": "CLUB_ADDRESS", "phone": "CLUB_PHONE", "hours": "CLUB_HOURS", "admin": "ADMIN_USERNAME"}.items()}
 INFO["admin"] = INFO["admin"].lstrip("@")
@@ -149,7 +156,7 @@ COLS = "id,user_id,name,zone,pc,start,end,status,grp,rate"
 
 
 def now_iso():
-    return datetime.now().isoformat(timespec="minutes")
+    return tnow().isoformat(timespec="minutes")
 
 
 def price(zone, st, en, rate=None):
@@ -240,13 +247,13 @@ async def notify(uid, text, silent=False, markup=None):
 
 
 def left_text(g):
-    mins = max(0, int((datetime.fromisoformat(g[0][5]) - datetime.now()).total_seconds() // 60))
+    mins = max(0, int((datetime.fromisoformat(g[0][5]) - tnow()).total_seconds() // 60))
     return dur_text(mins) or "bir necha soniya"
 
 
 def confirm(g):
     """Bronni tasdiqlaydi va soatlik eslatma hisobini boshlaydi."""
-    left = (datetime.fromisoformat(g[0][5]) - datetime.now()).total_seconds() / 60
+    left = (datetime.fromisoformat(g[0][5]) - tnow()).total_seconds() / 60
     mark(g, "status", "confirmed")
     mark(g, "hr_sent", max(0, -(-int(left) // 60)))
 
@@ -300,6 +307,10 @@ def menu_markup():
         [InlineKeyboardButton(text="💬 Yordam", callback_data="support")]])
 
 
+def open_markup():
+    return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🎮 Bron qilish", web_app=WebAppInfo(url=WEBAPP_URL))]])
+
+
 async def send_menu(m: Message):
     await m.answer(WELCOME, parse_mode="HTML", reply_markup=menu_markup())
 
@@ -314,7 +325,7 @@ async def start(m: Message):
     await send_menu(m)
 
 
-REG_OK = ("✅ <b>Ro'yxatdan o'tdingiz!</b>\n\nEndi pastdagi tugma orqali kompyuter yoki zonani bron qilishingiz mumkin. "
+REG_OK = ("✅ <b>Ro'yxatdan o'tdingiz!</b>\n\nBron qilish uchun pastdagi <b>«🎮 Bron qilish»</b> tugmasini bosing, ilova ochiladi. "
           "Bron bepul, to'lov klubga kelganingizda.")
 
 
@@ -328,19 +339,19 @@ async def got_contact(m: Message):
     db.execute("INSERT OR REPLACE INTO users(user_id,phone,name,created) VALUES(?,?,?,?)",
                (m.from_user.id, phone, m.from_user.full_name, now_iso()))
     db.commit()
+    # 1) eng muhimi: tugmali xabar (tugma bosilsa web app ochiladi)
+    for mk in (menu_markup, open_markup):
+        try:
+            await m.answer(REG_OK, parse_mode="HTML", reply_markup=mk())
+            break
+        except Exception as e:
+            print("tugmali xabar yuborilmadi:", mk.__name__, repr(e))
+    # 2) "Raqamni yuborish" tugmasini yig'ishtirish (xabar darrov o'chadi)
     try:
         tmp = await m.answer("✅", reply_markup=ReplyKeyboardRemove())
         await tmp.delete()
     except Exception as e:
         print("klaviatura olib tashlanmadi:", repr(e))
-    try:
-        await m.answer(REG_OK, parse_mode="HTML", reply_markup=menu_markup())
-    except Exception as e:
-        print("menyu xabari yuborilmadi:", repr(e))
-        try:
-            await m.answer("✅ Ro'yxatdan o'tdingiz! Bron qilish uchun /start ni bosing.")
-        except Exception as e2:
-            print("xabar yuborilmadi:", repr(e2))
     try:
         await bot.send_message(ADMIN_ID, f"🆕 Yangi mijoz: {m.from_user.full_name} {phone}")
     except Exception as e:
@@ -389,7 +400,7 @@ async def admin_cb(c: CallbackQuery):
     if c.from_user.id != ADMIN_ID:
         return await c.answer("Ruxsat yo'q", show_alert=True)
     await c.answer()
-    act, now = c.data[4:], datetime.now()
+    act, now = c.data[4:], tnow()
     day = now.strftime("%Y-%m-%d")
     if act in ("today", "pending"):
         gs = groups(f"start LIKE ? AND {ACTIVE} AND user_id>0", (day + "%",)) if act == "today" else groups("status='pending' AND end>?", (now_iso(),))
@@ -485,13 +496,13 @@ async def any_text(m: Message):
 
 
 async def status_api(_):
-    now = datetime.now()
+    now = tnow()
     rows = db.execute(f"SELECT pc,zone,start,end,status,user_id FROM bookings WHERE {ACTIVE} AND end>? AND start<?",
                       (now.isoformat(timespec="minutes"), (now + timedelta(hours=24)).isoformat(timespec="minutes"))).fetchall()
     return web.json_response([{"pc": r[0], "zone": r[1], "start": r[2], "end": r[3], "status": r[4], "walkin": r[5] == 0} for r in rows])
 
 
-APP_VERSION = "v11"
+APP_VERSION = "v12"
 
 
 async def version(_):
@@ -546,7 +557,7 @@ async def book(req):
         return web.json_response({"error": "Noto'g'ri ma'lumot"}, status=400)
     if not items or len(items) > 30 or not 30 <= minutes <= 1440 or any(z not in ZONES or p not in ZONES[z]["pcs"] for z, p in items):
         return web.json_response({"error": "Noto'g'ri ma'lumot"}, status=400)
-    if start < datetime.now() - timedelta(minutes=1):
+    if start < tnow() - timedelta(minutes=1):
         return web.json_response({"error": "O'tgan vaqtni tanlab bo'lmaydi"}, status=400)
     s_ = start.isoformat(timespec="minutes")
     e_ = (start + timedelta(minutes=minutes)).isoformat(timespec="minutes")
@@ -604,7 +615,7 @@ async def admin_data(req):
     _, u = await admin_auth(req)
     if not u:
         return web.json_response({"error": "Ruxsat yo'q"}, status=403)
-    now = datetime.now()
+    now = tnow()
     day = now.strftime("%Y-%m-%d")
 
     def stat(since):
@@ -651,7 +662,7 @@ async def admin_walkin(req):
         mins = 0
     if not pcs or not 15 <= mins <= 1440:
         return web.json_response({"error": "Noto'g'ri ma'lumot"}, status=400)
-    now = datetime.now()
+    now = tnow()
     s_ = now.isoformat(timespec="minutes")
     e_ = (now + timedelta(minutes=mins)).isoformat(timespec="minutes")
     for p in pcs:
@@ -678,7 +689,7 @@ async def admin_free(req):
     if not pcs:
         return web.json_response({"error": "Noto'g'ri ma'lumot"}, status=400)
     db.execute(f"UPDATE bookings SET status='cancelled' WHERE user_id=0 AND pc IN ({','.join('?' * len(pcs))}) AND {ACTIVE} AND end>?",
-               (*pcs, datetime.now().isoformat(timespec="minutes")))
+               (*pcs, tnow().isoformat(timespec="minutes")))
     db.commit()
     return web.json_response({"ok": True})
 
@@ -733,7 +744,7 @@ async def admin_stats(req):
     _, u = await admin_auth(req)
     if not u:
         return web.json_response({"error": "Ruxsat yo'q"}, status=403)
-    now = datetime.now()
+    now = tnow()
     iso = lambda d: d.isoformat(timespec="minutes")
     mid = now.replace(hour=0, minute=0, second=0, microsecond=0)
     d1, d7, d30, up = iso(mid), iso(now - timedelta(days=7)), iso(now - timedelta(days=30)), iso(mid + timedelta(days=1))
@@ -818,7 +829,7 @@ async def admin_price(req):
 async def reminder_loop():
     while True:
         try:
-            now = datetime.now()
+            now = tnow()
             night = now.hour >= 23 or now.hour < 8  # tunda ovozsiz yuboriladi
             # 1) soatlik hisoblagich: "N soat qoldi"
             for g in groups("status='confirmed' AND user_id>0 AND start>?", (now.isoformat(timespec="minutes"),)):

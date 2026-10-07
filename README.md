@@ -21,7 +21,7 @@
 - `ZONES` — zonalar, narxlar, kompyuterlar soni
 - `REMIND_MIN` — bron boshlanishidan necha daqiqa oldin eslatish
 
-Vaqt server soat mintaqasi bo'yicha ishlaydi (`export TZ=Asia/Tashkent`).
+Vaqt har doim **Toshkent (UTC+5)** bo'yicha ishlaydi: server va mijoz telefoni qaysi soat mintaqasida bo'lishidan qat'i nazar.
 
 ## Buyruqlar
 - Mijoz: `/start` (bron qilish), `/my` (bronlarim va bekor qilish)
@@ -51,7 +51,7 @@ Bron qilinganda, tasdiqlanganda, rad etilganda mijozga chiroyli kartochka yubori
 (oxirgi `HOURLY_MAX_H` = 24 soat ichida; kechasi 23:00–08:00 ovozsiz), keyin 30 daqiqa oldin eslatma va boshlanish vaqtida xabar.
 
 ## Versiyani tekshirish
-Deploydan keyin `https://sizning-domen.uz/api/version` yoki botda `/status` ni oching. Hozirgi versiya: **v11**. Eski versiya chiqsa, yangi deploy ishga tushmagan: Railway → Deployments → Logs ni tekshiring.
+Deploydan keyin `https://sizning-domen.uz/api/version` yoki botda `/status` ni oching. Hozirgi versiya: **v12**. Eski versiya chiqsa, yangi deploy ishga tushmagan: Railway → Deployments → Logs ni tekshiring.
 Kod Python 3.10+ da ishlaydi.
 
 ## Xususiyatlar va guruh bron
