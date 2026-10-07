@@ -190,8 +190,13 @@ async def got_contact(m: Message):
     db.execute("INSERT OR REPLACE INTO users(user_id,phone,name,created) VALUES(?,?,?,?)",
                (m.from_user.id, phone, m.from_user.full_name, now_iso()))
     db.commit()
-    await m.answer("✅ Ro'yxatdan o'tdingiz! Endi web app orqali bron qilishingiz mumkin.", reply_markup=ReplyKeyboardRemove())
-    await send_menu(m)
+    tmp = await m.answer("✅", reply_markup=ReplyKeyboardRemove())
+    try:
+        await tmp.delete()
+    except Exception:
+        pass
+    await m.answer("✅ <b>Ro'yxatdan o'tdingiz!</b>\n\nEndi pastdagi tugma orqali kompyuter yoki zonani bron qilishingiz mumkin. Bron bepul, to'lov klubga kelganingizda.",
+                   parse_mode="HTML", reply_markup=menu_markup())
     try:
         await bot.send_message(ADMIN_ID, f"🆕 Yangi mijoz: {m.from_user.full_name} {phone}")
     except Exception as e:
@@ -338,7 +343,7 @@ async def status_api(_):
     return web.json_response([{"pc": r[0], "zone": r[1], "start": r[2], "end": r[3], "status": r[4], "walkin": r[5] == 0} for r in rows])
 
 
-APP_VERSION = "v7"
+APP_VERSION = "v8"
 
 
 async def version(_):
@@ -520,6 +525,85 @@ async def admin_free(req):
     return web.json_response({"ok": True})
 
 
+def pk(id, group, zone, title, price, big, label, desc, hours=None, sub="", kind="pkg"):
+    return {"id": id, "group": group, "zone": zone, "title": title, "price": price, "big": big,
+            "label": label, "desc": desc, "hours": hours, "sub": sub, "kind": kind}
+
+
+def _h(n, z):
+    return f"{n} soatlik paket. {z} zonasida istalgan bo'sh kompyuterda o'ynaysiz."
+
+
+def _p(z):
+    return f"5 soat to'laysiz, +1 soat sovg'a: jami 6 soat. {z} zonasida istalgan bo'sh kompyuterda."
+
+
+_BC = "Bootcamp: 2 soatlik maxsus paket (jamoa mashg'ulotlari uchun). Batafsil shartlarni administratordan so'rang."
+_AD = "Shartlari bo'yicha administratorga murojaat qiling."
+PKG_NOTE = "Paketlar klubda, kassada rasmiylashtiriladi. Bron bepul va paket olishga bog'liq emas. Narxlar o'zgarishi mumkin."
+PACKAGES = [
+    pk("main3", "MAIN", "MAIN", "MAIN - 3 soat", 49000, "3", "MAIN", _h(3, "Main"), 3),
+    pk("main5", "MAIN", "MAIN", "MAIN - 5 soat", 79000, "5", "MAIN", _h(5, "Main"), 5),
+    pk("mainday", "MAIN", "MAIN", "MAIN DAY", 50000, "DAY", "MAIN", "Kunduzgi paket: faqat 08:00 dan 17:00 gacha amal qiladi.", None, "08:00 - 17:00"),
+    pk("mainmember", "MAIN", "MAIN", "MAIN - MEMBER", 50000, "MEMBER", "MAIN", "Member paketi. " + _AD),
+    pk("marvel3", "MARVEL", "MARVEL", "Marvel - 3 soat", 79000, "3", "MARVEL", _h(3, "Marvel"), 3),
+    pk("marvel6", "MARVEL", "MARVEL", "Marvel - 6 soat (5+1)", 139000, "5+1", "MARVEL", _p("Marvel"), 6),
+    pk("sakura3", "SAKURA", "WOMEN", "Sakura - 3 soat", 79000, "3", "SAKURA", _h(3, "Sakura"), 3),
+    pk("sakura6", "SAKURA", "WOMEN", "Sakura - 6 soat (5+1)", 139000, "5+1", "SAKURA", _p("Sakura"), 6),
+    pk("solo3", "SOLO", "SOLO", "SOLO - 3 soat", 119000, "3", "SOLO", _h(3, "Solo"), 3),
+    pk("solo5", "SOLO", "SOLO", "SOLO - 5 soat", 199000, "5", "SOLO", _h(5, "Solo"), 5),
+    pk("sw3", "STAR WARS", "STARWARS", "Star Wars - 3 soat", 79000, "3", "STAR WARS", _h(3, "Star Wars"), 3),
+    pk("sw6", "STAR WARS", "STARWARS", "Star Wars - 6 soat (5+1)", 139000, "5+1", "STAR WARS", _p("Star Wars"), 6),
+    pk("sv3", "SUPER VIP", "SUPERVIP", "SUPERVIP - 3 soat", 99000, "3", "SUPER VIP", _h(3, "Super VIP"), 3),
+    pk("trio3", "TRIO", "TRIO", "TRIO - 3 soat", 85000, "3", "TRIO", _h(3, "Trio"), 3),
+    pk("trio6", "TRIO", "TRIO", "Trio - 6 soat (5+1)", 159000, "5+1", "TRIO", _p("Trio"), 6),
+    pk("bc_marvel", "BOOTCAMP", "MARVEL", "Marvel's Bootcamp - 2 soat", 260000, "2", "BOOTCAMP", _BC, None, "MARVEL'S"),
+    pk("bc_sakura", "BOOTCAMP", "WOMEN", "Sakura Bootcamp - 2 soat", 150000, "2", "BOOTCAMP", _BC, None, "SAKURA"),
+    pk("bc_sw", "BOOTCAMP", "STARWARS", "Star Wars Bootcamp - 2 soat", 260000, "2", "BOOTCAMP", _BC, None, "STAR WARS"),
+    pk("bonus5", "MAXSUS", None, "5 soat istalgan vaqtda", 0, "5", "SOAT", "Bonus: 5 soat istalgan vaqtda ishlatiladi. Qanday olish mumkinligini administratordan so'rang.", None, "istalgan vaqtda", "bonus"),
+    pk("disc_bc", "MAXSUS", None, "Bootcamp chegirma", 99000, "%", "CHEGIRMA", "Bootcamp uchun chegirma paketi. " + _AD, None, "Bootcamp"),
+    pk("disc_st", "MAXSUS", None, "Solo Trio chegirma", 99000, "%", "CHEGIRMA", "Solo va Trio uchun chegirma paketi. " + _AD, None, "Solo Trio"),
+    pk("weekly", "MAXSUS", None, "Weekly Pass", 1000000, "7", "WEEKLY PASS", "Haftalik pass. " + _AD, None, "kun"),
+]
+
+
+async def packages(_):
+    return web.json_response({"note": PKG_NOTE, "items": PACKAGES})
+
+
+async def admin_stats(req):
+    _, u = await admin_auth(req)
+    if not u:
+        return web.json_response({"error": "Ruxsat yo'q"}, status=403)
+    now = datetime.now()
+    iso = lambda d: d.isoformat(timespec="minutes")
+    mid = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    d1, d7, d30, up = iso(mid), iso(now - timedelta(days=7)), iso(now - timedelta(days=30)), iso(mid + timedelta(days=1))
+    one = lambda sql, p=(): db.execute(sql, p).fetchone()[0]
+    G = "COUNT(DISTINCT COALESCE(grp,id))"
+    OK = "user_id>0 AND status IN ('pending','confirmed')"
+    users = {"total": one("SELECT COUNT(*) FROM users"), "today": one("SELECT COUNT(*) FROM users WHERE created>=?", (d1,)),
+             "d7": one("SELECT COUNT(*) FROM users WHERE created>=?", (d7,))}
+    active = {k: one(f"SELECT COUNT(DISTINCT user_id) FROM bookings WHERE {OK} AND start>=? AND start<?", (v, up))
+              for k, v in (("d1", d1), ("d7", d7), ("d30", d30))}
+    tot = one(f"SELECT {G} FROM bookings WHERE user_id>0 AND start>=? AND start<?", (d30, up))
+    canc = one(f"SELECT {G} FROM bookings WHERE user_id>0 AND status IN ('cancelled','rejected') AND start>=? AND start<?", (d30, up))
+    daily = []
+    for i in range(6, -1, -1):
+        day = (now - timedelta(days=i)).strftime("%Y-%m-%d")
+        daily.append({"d": day[8:] + "." + day[5:7], "bookings": one(f"SELECT {G} FROM bookings WHERE {OK} AND start LIKE ?", (day + "%",))})
+    hrs = dict(db.execute("SELECT zone, SUM((julianday(end)-julianday(start))*24) FROM bookings WHERE user_id>0 AND status='confirmed' AND start>=? AND start<? GROUP BY zone", (d30, up)).fetchall())
+    zones = sorted(({"title": v["title"], "hours": round(hrs.get(z) or 0)} for z, v in ZONES.items()), key=lambda x: -x["hours"])
+    return web.json_response({
+        "users": users, "active": active,
+        "repeat": one(f"SELECT COUNT(*) FROM (SELECT user_id FROM bookings WHERE {OK} GROUP BY user_id HAVING {G}>=2)"),
+        "bookings30": one(f"SELECT {G} FROM bookings WHERE {OK} AND start>=? AND start<?", (d30, up)),
+        "cancel_rate": round(canc * 100 / tot) if tot else 0, "daily": daily, "zones": zones,
+        "hours": [{"h": h, "n": n} for h, n in db.execute(f"SELECT CAST(substr(start,12,2) AS INTEGER), {G} FROM bookings WHERE {OK} AND start>=? AND start<? GROUP BY 1 ORDER BY 2 DESC, 1 LIMIT 5", (d30, up))],
+        "top": [{"name": n, "n": c} for n, c in db.execute(f"SELECT MAX(name), {G} FROM bookings WHERE {OK} AND start>=? AND start<? GROUP BY user_id ORDER BY 2 DESC LIMIT 5", (d30, up))],
+        "recent": [{"name": n or "", "phone": p or "", "created": c or ""} for n, p, c in db.execute("SELECT name,phone,created FROM users ORDER BY created DESC LIMIT 8")]})
+
+
 async def me(req):
     u = check_init((await req.json()).get("initData", ""))
     if not u:
@@ -567,7 +651,8 @@ async def main():
                     web.post("/api/book", book), web.post("/api/my", my), web.post("/api/cancel", cancel),
                     web.get("/api/info", info), web.get("/api/version", version), web.get("/api/status", status_api), web.post("/api/admin", admin_data), web.post("/api/admin/decide", admin_decide),
                     web.post("/api/me", me), web.post("/api/admin/price", admin_price),
-                    web.post("/api/admin/walkin", admin_walkin), web.post("/api/admin/free", admin_free)])
+                    web.post("/api/admin/walkin", admin_walkin), web.post("/api/admin/free", admin_free),
+                    web.get("/api/packages", packages), web.post("/api/admin/stats", admin_stats)])
     runner = web.AppRunner(app)
     await runner.setup()
     await web.TCPSite(runner, "0.0.0.0", PORT).start()
