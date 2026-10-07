@@ -46,20 +46,98 @@ ZONES = {
 PCZONE = {pc: z for z, v in ZONES.items() for pc in v["pcs"]}
 bot = Bot(TOKEN)
 dp = Dispatcher()
-db = sqlite3.connect(os.getenv("DB_PATH", "club.db"), check_same_thread=False)
+DATABASE_URL = os.getenv("DATABASE_URL") or os.getenv("SUPABASE_DB_URL") or ""
+PG = DATABASE_URL.startswith(("postgres://", "postgresql://"))
+HOURLY_MAX_H = 24  # tasdiqlangan bron boshlanishiga necha soat qolganda soatlik xabarlar boshlanadi
+
+
+class _Res:
+    def __init__(self, cur, rowid=None):
+        self.cur, self.lastrowid = cur, rowid
+
+    def fetchone(self):
+        return self.cur.fetchone() if self.cur.description else None
+
+    def fetchall(self):
+        return self.cur.fetchall() if self.cur.description else []
+
+    def __iter__(self):
+        return iter(self.fetchall())
+
+
+class PgDB:
+    """sqlite3 ga o'xshash interfeys, lekin Supabase (Postgres) bilan ishlaydi."""
+    PK = {"users": "user_id", "prices": "zone", "support": "msg_id", "settings": "k"}
+
+    def __init__(self, url):
+        self.url, self.conn = url, None
+        self._connect()
+
+    def _connect(self):
+        import psycopg
+        self.conn = psycopg.connect(self.url, autocommit=True, prepare_threshold=None, connect_timeout=10)
+
+    def _sql(self, sql):
+        s = sql
+        m = re.match(r"\s*INSERT OR REPLACE INTO (\w+)\(([^)]*)\) VALUES\(([^)]*)\)", s)
+        if m:
+            t, cols, vals = m.groups()
+            pk = self.PK[t]
+            sets = ",".join(f"{c.strip()}=EXCLUDED.{c.strip()}" for c in cols.split(",") if c.strip() != pk)
+            s = f"INSERT INTO {t}({cols}) VALUES({vals}) ON CONFLICT ({pk}) DO " + (f"UPDATE SET {sets}" if sets else "NOTHING")
+        head = s.lstrip()
+        if head.startswith("CREATE TABLE"):
+            s = re.sub(r"\bINTEGER\b", "BIGINT", s.replace("INTEGER PRIMARY KEY AUTOINCREMENT", "BIGSERIAL PRIMARY KEY"))
+        elif head.startswith("ALTER TABLE"):
+            s = re.sub(r"\bINTEGER\b", "BIGINT", s.replace("ADD COLUMN ", "ADD COLUMN IF NOT EXISTS "))
+        s = re.sub(r"\bend\b", '"end"', s).replace("?", "%s")
+        if head.startswith("INSERT INTO bookings"):
+            s += " RETURNING id"
+        return s
+
+    def execute(self, sql, params=()):
+        import psycopg
+        s = self._sql(sql)
+        for attempt in (0, 1):
+            try:
+                cur = self.conn.execute(s, tuple(params))
+                break
+            except (psycopg.OperationalError, psycopg.InterfaceError):
+                if attempt:
+                    raise
+                self._connect()  # ulanish uzilgan bo'lsa, qayta ulanamiz
+        rowid = None
+        if s.endswith(" RETURNING id") and cur.description:
+            r = cur.fetchone()
+            rowid = r[0] if r else None
+        return _Res(cur, rowid)
+
+    def commit(self):
+        pass
+
+    def rollback(self):
+        pass
+
+
+db = PgDB(DATABASE_URL) if PG else sqlite3.connect(os.getenv("DB_PATH", "club.db"), check_same_thread=False)
+print("Baza:", "Supabase (Postgres)" if PG else "SQLite")
 db.execute("""CREATE TABLE IF NOT EXISTS bookings(
     id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, name TEXT,
     zone TEXT, pc INTEGER, start TEXT, end TEXT,
     reminded INTEGER DEFAULT 0, started INTEGER DEFAULT 0, status TEXT DEFAULT 'pending', grp TEXT)""")
-for col in ("status TEXT DEFAULT 'pending'", "grp TEXT", "rate INTEGER"):
+for col in ("status TEXT DEFAULT 'pending'", "grp TEXT", "rate INTEGER", "hr_sent INTEGER"):
     try:
         db.execute(f"ALTER TABLE bookings ADD COLUMN {col}")
-    except sqlite3.OperationalError:
+    except Exception:
         pass
 db.execute("CREATE TABLE IF NOT EXISTS users(user_id INTEGER PRIMARY KEY, phone TEXT, name TEXT, created TEXT)")
 db.execute("CREATE TABLE IF NOT EXISTS prices(zone TEXT PRIMARY KEY, price INTEGER)")
 db.execute("CREATE TABLE IF NOT EXISTS support(msg_id INTEGER PRIMARY KEY, user_id INTEGER)")
 db.execute("CREATE TABLE IF NOT EXISTS settings(k TEXT PRIMARY KEY, v TEXT)")
+if PG:  # Supabase ochiq API orqali jadvallarga kirib bo'lmasligi uchun (telefon raqamlar bor)
+    for _t in ("bookings", "users", "prices", "support", "settings"):
+        db.execute(f"ALTER TABLE {_t} ENABLE ROW LEVEL SECURITY")
+HRS = "(EXTRACT(EPOCH FROM (end::timestamp - start::timestamp)) / 3600.0)" if PG else "((julianday(end) - julianday(start)) * 24)"
 for _z, _p in db.execute("SELECT zone,price FROM prices").fetchall():
     if _z in ZONES:
         ZONES[_z]["price"] = _p
@@ -117,6 +195,60 @@ def gtext(g):
 def mark(g, col, val=1):
     db.execute(f"UPDATE bookings SET {col}=? WHERE id IN ({','.join('?' * len(g))})", (val, *[r[0] for r in g]))
     db.commit()
+
+
+MONTHS_UZ = ["yanvar", "fevral", "mart", "aprel", "may", "iyun", "iyul", "avgust", "sentabr", "oktyabr", "noyabr", "dekabr"]
+WEEKDAYS_UZ = ["dushanba", "seshanba", "chorshanba", "payshanba", "juma", "shanba", "yakshanba"]
+
+
+def dur_text(minutes):
+    h, m = divmod(int(minutes), 60)
+    return " ".join(x for x in (f"{h} soat" if h else "", f"{m} daqiqa" if m else "") if x)
+
+
+def money(n):
+    return f"{int(n):,}".replace(",", " ")
+
+
+def card_html(g, title, note=""):
+    """Mijozga yuboriladigan chiroyli bron kartochkasi (HTML)."""
+    r = g[0]
+    st, en = datetime.fromisoformat(r[5]), datetime.fromisoformat(r[6])
+    by = {}
+    for x in g:
+        by.setdefault(x[3], []).append(f"{x[4]:03d}")
+    L = [f"<b>{title}</b>", "", ]
+    for z, v in by.items():
+        L.append(f"🎮 <b>{escape(ZONES[z]['title'] if z in ZONES else z)}</b>")
+        L.append(f"🖥 PC: <b>{', '.join(v)}</b>")
+    L.append(f"📅 {st.day}-{MONTHS_UZ[st.month - 1]}, {WEEKDAYS_UZ[st.weekday()]}")
+    L.append(f"🕒 <b>{st:%H:%M} – {en:%H:%M}</b>" + (" (ertasi kuni)" if en.date() != st.date() else "") + f"  · {dur_text((en - st).total_seconds() / 60)}")
+    L.append(f"💰 Klubda to'lanadi: <b>{money(total(g))} so'm</b>")
+    L.append(f"📌 Holat: {ST[r[7]]}")
+    if note:
+        L += ["", note]
+    return "\n".join(L)
+
+
+async def notify(uid, text, silent=False, markup=None):
+    try:
+        await bot.send_message(uid, text, parse_mode="HTML", disable_notification=silent, reply_markup=markup)
+        return True
+    except Exception as e:
+        print("xabar yuborilmadi:", uid, repr(e))
+        return False
+
+
+def left_text(g):
+    mins = max(0, int((datetime.fromisoformat(g[0][5]) - datetime.now()).total_seconds() // 60))
+    return dur_text(mins) or "bir necha soniya"
+
+
+def confirm(g):
+    """Bronni tasdiqlaydi va soatlik eslatma hisobini boshlaydi."""
+    left = (datetime.fromisoformat(g[0][5]) - datetime.now()).total_seconds() / 60
+    mark(g, "status", "confirmed")
+    mark(g, "hr_sent", max(0, -(-int(left) // 60)))
 
 
 def check_init(init: str):
@@ -284,14 +416,11 @@ async def decide_cb(c: CallbackQuery):
     g = group_of(int(id_))
     if not g or g[0][7] not in ("pending", "confirmed"):
         return await c.answer("Bu bron endi faol emas", show_alert=True)
-    mark(g, "status", "confirmed" if act == "ok" else "rejected")
+    confirm(g) if act == "ok" else mark(g, "status", "rejected")
     g = group_of(int(id_))
     await c.message.edit_text(f"👤 {g[0][2]}\n{gtext(g)}")
     await c.answer()
-    if act == "ok":
-        await bot.send_message(g[0][1], f"✅ Bronigiz tasdiqlandi!\n{gtext(g)}")
-    else:
-        await bot.send_message(g[0][1], f"❌ Afsus, bronigiz bekor qilindi (admin tomonidan).\n{gtext(g)}\nBoshqa vaqt yoki joy tanlab ko'ring.")
+    await notify(g[0][1], card_html(g, "✅ Bronigiz tasdiqlandi!", f"⏳ Boshlanishiga: <b>{left_text(g)}</b>\nSizni kutamiz! Vaqti yaqinlashganda eslatib turamiz 🔔") if act == "ok" else card_html(g, "❌ Afsus, bronigiz tasdiqlanmadi", "Boshqa vaqt yoki joy tanlab ko'ring 🙏"))
 
 
 # ---------- WEB ----------
@@ -362,7 +491,7 @@ async def status_api(_):
     return web.json_response([{"pc": r[0], "zone": r[1], "start": r[2], "end": r[3], "status": r[4], "walkin": r[5] == 0} for r in rows])
 
 
-APP_VERSION = "v10"
+APP_VERSION = "v11"
 
 
 async def version(_):
@@ -434,8 +563,8 @@ async def book(req):
     g = groups("grp=?", (grp,))[0]
     await bot.send_message(ADMIN_ID, f"🆕 Yangi bron\n👤 {name}\n{gtext(g)}",
                            reply_markup=kb(("✅ Tasdiqlash", f"ok:{g[0][0]}"), ("❌ Rad etish", f"no:{g[0][0]}")))
-    await bot.send_message(user["id"], f"📨 Bron yuborildi, admin tasdiqlashini kuting.\n{gtext(g)}\n💳 Bron bepul, to'lov klubga kelganingizda.",
-                           reply_markup=kb(("📋 Mening bronlarim", "my")))
+    await notify(user["id"], card_html(g, "📨 Bron qabul qilindi!", "⏳ Admin tasdiqlashi bilan sizga xabar yuboramiz.\n💳 Bron bepul, to'lov klubga kelganingizda."),
+                 markup=kb(("📋 Mening bronlarim", "my")))
     return web.json_response({"ok": True})
 
 
@@ -497,12 +626,9 @@ async def admin_decide(req):
     g = group_of(int(b.get("id", 0)))
     if act not in ("ok", "no") or not g or g[0][7] not in ("pending", "confirmed"):
         return web.json_response({"error": "Bu bron endi faol emas"}, status=400)
-    mark(g, "status", "confirmed" if act == "ok" else "rejected")
+    confirm(g) if act == "ok" else mark(g, "status", "rejected")
     g = group_of(g[0][0])
-    if act == "ok":
-        await bot.send_message(g[0][1], f"✅ Bronigiz tasdiqlandi!\n{gtext(g)}")
-    else:
-        await bot.send_message(g[0][1], f"❌ Afsus, bronigiz bekor qilindi (admin tomonidan).\n{gtext(g)}\nBoshqa vaqt yoki joy tanlab ko'ring.")
+    await notify(g[0][1], card_html(g, "✅ Bronigiz tasdiqlandi!", f"⏳ Boshlanishiga: <b>{left_text(g)}</b>\nSizni kutamiz! Vaqti yaqinlashganda eslatib turamiz 🔔") if act == "ok" else card_html(g, "❌ Afsus, bronigiz tasdiqlanmadi", "Boshqa vaqt yoki joy tanlab ko'ring 🙏"))
     return web.json_response({"ok": True})
 
 
@@ -538,7 +664,7 @@ async def admin_walkin(req):
     for p in pcs:
         cur = db.execute("INSERT INTO bookings(user_id,name,zone,pc,start,end,status,grp,rate) VALUES(0,?,?,?,?,?,'confirmed',?,?)",
                          ("Zalda (admin belgiladi)", PCZONE[p], p, s_, e_, gid, ZONES[PCZONE[p]]["price"]))
-        gid = gid or cur.lastrowid
+        gid = gid or str(cur.lastrowid)
         db.execute("UPDATE bookings SET grp=? WHERE id=?", (gid, cur.lastrowid))
     db.commit()
     return web.json_response({"ok": True})
@@ -612,7 +738,7 @@ async def admin_stats(req):
     mid = now.replace(hour=0, minute=0, second=0, microsecond=0)
     d1, d7, d30, up = iso(mid), iso(now - timedelta(days=7)), iso(now - timedelta(days=30)), iso(mid + timedelta(days=1))
     one = lambda sql, p=(): db.execute(sql, p).fetchone()[0]
-    G = "COUNT(DISTINCT COALESCE(grp,id))"
+    G = "COUNT(DISTINCT COALESCE(grp,'i'||id))"
     OK = "user_id>0 AND status IN ('pending','confirmed')"
     users = {"total": one("SELECT COUNT(*) FROM users"), "today": one("SELECT COUNT(*) FROM users WHERE created>=?", (d1,)),
              "d7": one("SELECT COUNT(*) FROM users WHERE created>=?", (d7,))}
@@ -624,11 +750,11 @@ async def admin_stats(req):
     for i in range(6, -1, -1):
         day = (now - timedelta(days=i)).strftime("%Y-%m-%d")
         daily.append({"d": day[8:] + "." + day[5:7], "bookings": one(f"SELECT {G} FROM bookings WHERE {OK} AND start LIKE ?", (day + "%",))})
-    hrs = dict(db.execute("SELECT zone, SUM((julianday(end)-julianday(start))*24) FROM bookings WHERE user_id>0 AND status='confirmed' AND start>=? AND start<? GROUP BY zone", (d30, up)).fetchall())
+    hrs = dict(db.execute(f"SELECT zone, SUM({HRS}) FROM bookings WHERE user_id>0 AND status='confirmed' AND start>=? AND start<? GROUP BY zone", (d30, up)).fetchall())
     zones = sorted(({"title": v["title"], "hours": round(hrs.get(z) or 0)} for z, v in ZONES.items()), key=lambda x: -x["hours"])
     return web.json_response({
         "users": users, "active": active,
-        "repeat": one(f"SELECT COUNT(*) FROM (SELECT user_id FROM bookings WHERE {OK} GROUP BY user_id HAVING {G}>=2)"),
+        "repeat": one(f"SELECT COUNT(*) FROM (SELECT user_id FROM bookings WHERE {OK} GROUP BY user_id HAVING {G}>=2) AS t"),
         "bookings30": one(f"SELECT {G} FROM bookings WHERE {OK} AND start>=? AND start<?", (d30, up)),
         "cancel_rate": round(canc * 100 / tot) if tot else 0, "daily": daily, "zones": zones,
         "hours": [{"h": h, "n": n} for h, n in db.execute(f"SELECT CAST(substr(start,12,2) AS INTEGER), {G} FROM bookings WHERE {OK} AND start>=? AND start<? GROUP BY 1 ORDER BY 2 DESC, 1 LIMIT 5", (d30, up))],
@@ -693,16 +819,30 @@ async def reminder_loop():
     while True:
         try:
             now = datetime.now()
+            night = now.hour >= 23 or now.hour < 8  # tunda ovozsiz yuboriladi
+            # 1) soatlik hisoblagich: "N soat qoldi"
+            for g in groups("status='confirmed' AND user_id>0 AND start>?", (now.isoformat(timespec="minutes"),)):
+                left = (datetime.fromisoformat(g[0][5]) - now).total_seconds() / 60
+                m = -(-int(left) // 60)  # nechta soat qolgani (yuqoriga yaxlitlanadi)
+                hs = db.execute("SELECT hr_sent FROM bookings WHERE id=?", (g[0][0],)).fetchone()[0]
+                if hs is None:
+                    mark(g, "hr_sent", m)
+                elif 1 <= m < hs and m <= HOURLY_MAX_H:
+                    mark(g, "hr_sent", m)
+                    await notify(g[0][1], card_html(g, f"⏳ Bronigizga {m} soat qoldi", "Kelishni unutmang! 🎮"), silent=night,
+                                 markup=kb(("📋 Mening bronlarim", "my")))
+            # 2) boshlanishiga REMIND_MIN daqiqa qolganda
             soon = (now + timedelta(minutes=REMIND_MIN)).isoformat(timespec="minutes")
             for g in groups("status='confirmed' AND user_id>0 AND reminded=0 AND start<=?", (soon,)):
-                await bot.send_message(g[0][1], f"⏰ Eslatma: bronigiz {REMIND_MIN} daqiqadan keyin boshlanadi.\n{gtext(g)}")
                 mark(g, "reminded")
+                await notify(g[0][1], card_html(g, f"⏰ Bronigiz {REMIND_MIN} daqiqadan keyin boshlanadi!", "Yo'lga chiqish vaqti 🚶"), silent=night)
+            # 3) boshlanish vaqti
             for g in groups("status='confirmed' AND user_id>0 AND started=0 AND start<=?", (now.isoformat(timespec="minutes"),)):
-                await bot.send_message(g[0][1], f"🎮 Vaqtingiz boshlandi! Kutib turibmiz!\n{gtext(g)}")
-                await bot.send_message(ADMIN_ID, f"🔔 Mijoz vaqti boshlandi: {g[0][2]}\n{gtext(g)}")
                 mark(g, "started")
+                await notify(g[0][1], card_html(g, "🎮 Vaqtingiz boshlandi!", "Kutib turibmiz. Yaxshi o'yin! 🔥"))
+                await bot.send_message(ADMIN_ID, f"🔔 Mijoz vaqti boshlandi: {g[0][2]}\n{gtext(g)}")
         except Exception as e:
-            print("reminder error:", e)
+            print("reminder error:", repr(e))
         await asyncio.sleep(30)
 
 

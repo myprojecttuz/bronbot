@@ -37,8 +37,21 @@ Railway Variables ga qo'shing: `CLUB_ADDRESS`, `CLUB_PHONE`, `CLUB_HOURS`, `ADMI
 Yoki botda admin sifatida Mini App → **Admin → Aloqa** bo'limidan to'ldiring: manzil, ish vaqti, **bir nechta admin** (ism, telefon, @username) va xarita koordinatasi
 (`41.311081, 69.240562` yoki Google xaritadagi to'liq havola; `maps.app.goo.gl` qisqa havolasi ishlamaydi). Mijozlar buni **Aloqa** bo'limida (xarita, qo'ng'iroq va Telegram tugmalari bilan) va `/support` da ko'radi.
 
+## Supabase (doimiy baza)
+Railway'da `club.db` har deployda o'chib ketishi mumkin. Supabase ulansa, bronlar va mijozlar doimiy saqlanadi.
+1. Supabase → **Project Settings → Database → Connection string** → **Session pooler** ni tanlang va nusxalang
+   (Railway IPv6 ni qo'llamaydi, shuning uchun oddiy "Direct connection" ishlamasligi mumkin). Parolni `[YOUR-PASSWORD]` o'rniga qo'ying.
+2. Railway **Variables** ga `DATABASE_URL` nomi bilan qo'shing. Bot qayta ishga tushganda jadvallarni o'zi yaratadi.
+   Loglarda `Baza: Supabase (Postgres)` chiqishi kerak. `DATABASE_URL` bo'lmasa, avvalgidek SQLite ishlaydi.
+3. Eski ma'lumotlarni ko'chirish (ixtiyoriy, bir marta): `DATABASE_URL="..." python migrate_to_supabase.py club.db`
+Jadvallarda Row Level Security yoqiladi, shuning uchun telefon raqamlarga Supabase ochiq API orqali kirib bo'lmaydi (bot to'g'ridan-to'g'ri ulanadi).
+
+## Xabarlar
+Bron qilinganda, tasdiqlanganda, rad etilganda mijozga chiroyli kartochka yuboriladi. Tasdiqlangan bron boshlanishigacha **har soatda** "N soat qoldi" xabari keladi
+(oxirgi `HOURLY_MAX_H` = 24 soat ichida; kechasi 23:00–08:00 ovozsiz), keyin 30 daqiqa oldin eslatma va boshlanish vaqtida xabar.
+
 ## Versiyani tekshirish
-Deploydan keyin `https://sizning-domen.uz/api/version` yoki botda `/status` ni oching. Hozirgi versiya: **v10**. Eski versiya chiqsa, yangi deploy ishga tushmagan: Railway → Deployments → Logs ni tekshiring.
+Deploydan keyin `https://sizning-domen.uz/api/version` yoki botda `/status` ni oching. Hozirgi versiya: **v11**. Eski versiya chiqsa, yangi deploy ishga tushmagan: Railway → Deployments → Logs ni tekshiring.
 Kod Python 3.10+ da ishlaydi.
 
 ## Xususiyatlar va guruh bron
