@@ -1,4 +1,4 @@
-import asyncio, os, json, hmac, hashlib, sqlite3, uuid
+import asyncio, os, re, json, hmac, hashlib, sqlite3, uuid, logging
 from urllib.parse import parse_qsl
 from datetime import datetime, timedelta
 from aiohttp import web
@@ -7,6 +7,7 @@ from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command, CommandStart
 from aiogram.types import BotCommand, MenuButtonWebApp, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove, CallbackQuery, Message, WebAppInfo, InlineKeyboardMarkup, InlineKeyboardButton
 
+logging.basicConfig(level=logging.INFO)
 TOKEN = os.environ["BOT_TOKEN"]
 ADMIN_ID = int(os.environ["ADMIN_ID"])
 WEBAPP_URL = os.environ["WEBAPP_URL"]
@@ -58,6 +59,7 @@ for col in ("status TEXT DEFAULT 'pending'", "grp TEXT", "rate INTEGER"):
 db.execute("CREATE TABLE IF NOT EXISTS users(user_id INTEGER PRIMARY KEY, phone TEXT, name TEXT, created TEXT)")
 db.execute("CREATE TABLE IF NOT EXISTS prices(zone TEXT PRIMARY KEY, price INTEGER)")
 db.execute("CREATE TABLE IF NOT EXISTS support(msg_id INTEGER PRIMARY KEY, user_id INTEGER)")
+db.execute("CREATE TABLE IF NOT EXISTS settings(k TEXT PRIMARY KEY, v TEXT)")
 for _z, _p in db.execute("SELECT zone,price FROM prices").fetchall():
     if _z in ZONES:
         ZONES[_z]["price"] = _p
@@ -180,6 +182,10 @@ async def start(m: Message):
     await send_menu(m)
 
 
+REG_OK = ("✅ <b>Ro'yxatdan o'tdingiz!</b>\n\nEndi pastdagi tugma orqali kompyuter yoki zonani bron qilishingiz mumkin. "
+          "Bron bepul, to'lov klubga kelganingizda.")
+
+
 @dp.message(F.contact)
 async def got_contact(m: Message):
     c = m.contact
@@ -190,23 +196,30 @@ async def got_contact(m: Message):
     db.execute("INSERT OR REPLACE INTO users(user_id,phone,name,created) VALUES(?,?,?,?)",
                (m.from_user.id, phone, m.from_user.full_name, now_iso()))
     db.commit()
-    tmp = await m.answer("✅", reply_markup=ReplyKeyboardRemove())
     try:
+        tmp = await m.answer("✅", reply_markup=ReplyKeyboardRemove())
         await tmp.delete()
-    except Exception:
-        pass
-    await m.answer("✅ <b>Ro'yxatdan o'tdingiz!</b>\n\nEndi pastdagi tugma orqali kompyuter yoki zonani bron qilishingiz mumkin. Bron bepul, to'lov klubga kelganingizda.",
-                   parse_mode="HTML", reply_markup=menu_markup())
+    except Exception as e:
+        print("klaviatura olib tashlanmadi:", repr(e))
+    try:
+        await m.answer(REG_OK, parse_mode="HTML", reply_markup=menu_markup())
+    except Exception as e:
+        print("menyu xabari yuborilmadi:", repr(e))
+        try:
+            await m.answer("✅ Ro'yxatdan o'tdingiz! Bron qilish uchun /start ni bosing.")
+        except Exception as e2:
+            print("xabar yuborilmadi:", repr(e2))
     try:
         await bot.send_message(ADMIN_ID, f"🆕 Yangi mijoz: {m.from_user.full_name} {phone}")
     except Exception as e:
-        print("admin xabari yuborilmadi:", e)
+        print("admin xabari yuborilmadi:", repr(e))
 
 
 @dp.message(Command("status"))
 async def status_cmd(m: Message):
     ph = phone_of(m.from_user.id)
-    await m.answer(f"Bot versiyasi: {APP_VERSION}\nRo'yxatdan o'tgan: {'ha, ' + ph if ph else "yo'q"}\nID: {m.from_user.id}")
+    reg = "ha, " + ph if ph else "yo'q"
+    await m.answer(f"Bot versiyasi: {APP_VERSION}\nRo'yxatdan o'tgan: {reg}\nID: {m.from_user.id}")
 
 
 @dp.message(Command("my"))
@@ -286,16 +299,22 @@ SUPPORT_WAIT = set()
 
 
 def support_text():
+    c = load_contacts()
     t = "💬 <b>Yordam markazi</b>\n"
-    for ic, k in (("📞", "phone"), ("🕒", "hours"), ("📍", "address")):
-        if INFO.get(k):
-            t += f"\n{ic} {escape(INFO[k])}"
+    if c["address"]:
+        t += f"\n📍 {escape(c['address'])}"
+    if c["hours"]:
+        t += f"\n🕒 {escape(c['hours'])}"
+    for a in c["admins"]:
+        line = escape(a.get("name") or "Administrator") + (f": {escape(a['phone'])}" if a.get("phone") else "")
+        t += f"\n👤 {line}"
     return t + "\n\nSavolingizni shu yerga yozing, admin javob beradi."
 
 
 async def send_support(uid):
     SUPPORT_WAIT.add(uid)
-    rows = [[InlineKeyboardButton(text="👤 Adminga yozish", url="https://t.me/" + INFO["admin"])]] if INFO.get("admin") else []
+    rows = [[InlineKeyboardButton(text="👤 " + (a.get("name") or "Admin"), url="https://t.me/" + a["username"])]
+            for a in load_contacts()["admins"] if a.get("username")]
     await bot.send_message(uid, support_text(), parse_mode="HTML",
                            reply_markup=InlineKeyboardMarkup(inline_keyboard=rows) if rows else None)
 
@@ -343,7 +362,7 @@ async def status_api(_):
     return web.json_response([{"pc": r[0], "zone": r[1], "start": r[2], "end": r[3], "status": r[4], "walkin": r[5] == 0} for r in rows])
 
 
-APP_VERSION = "v8"
+APP_VERSION = "v10"
 
 
 async def version(_):
@@ -358,8 +377,21 @@ async def zones(_):
     return web.json_response(ZONES)
 
 
+def load_contacts():
+    c = {"address": INFO.get("address", ""), "hours": INFO.get("hours", ""), "coords": "", "admins": []}
+    if INFO.get("phone") or INFO.get("admin"):
+        c["admins"] = [{"name": "Administrator", "phone": INFO.get("phone", ""), "username": INFO.get("admin", "")}]
+    r = db.execute("SELECT v FROM settings WHERE k='contacts'").fetchone()
+    if r:
+        try:
+            c.update(json.loads(r[0]))
+        except Exception:
+            pass
+    return c
+
+
 async def info(_):
-    return web.json_response(INFO)
+    return web.json_response({**INFO, **load_contacts()})
 
 
 async def busy(req):
@@ -604,6 +636,35 @@ async def admin_stats(req):
         "recent": [{"name": n or "", "phone": p or "", "created": c or ""} for n, p, c in db.execute("SELECT name,phone,created FROM users ORDER BY created DESC LIMIT 8")]})
 
 
+async def admin_contacts(req):
+    b, u = await admin_auth(req)
+    if not u:
+        return web.json_response({"error": "Ruxsat yo'q"}, status=403)
+    clean = lambda x, n: str(x or "").strip()[:n]
+    coords = clean(b.get("coords"), 400)
+    if coords:
+        m = (re.search(r"@(-?\d{1,2}\.\d+),(-?\d{1,3}\.\d+)", coords) or re.search(r"!3d(-?\d{1,2}\.\d+)!4d(-?\d{1,3}\.\d+)", coords)
+             or re.search(r"(-?\d{1,2}\.\d+)\s*[,;]\s*(-?\d{1,3}\.\d+)", coords))
+        try:
+            la, lo = float(m.group(1)), float(m.group(2))
+            assert -90 <= la <= 90 and -180 <= lo <= 180
+            coords = f"{la:.6f}, {lo:.6f}"
+        except Exception:
+            return web.json_response({"error": "Koordinata noto'g'ri. Masalan: 41.311081, 69.240562 (yoki Google xarita havolasi)"}, status=400)
+    admins = []
+    for a in (b.get("admins") or [])[:10]:
+        if not isinstance(a, dict):
+            continue
+        name, phone = clean(a.get("name"), 60), clean(a.get("phone"), 30)
+        user = re.sub(r"[^A-Za-z0-9_]", "", clean(a.get("username"), 40))
+        if name or phone or user:
+            admins.append({"name": name, "phone": phone, "username": user})
+    data = {"address": clean(b.get("address"), 300), "hours": clean(b.get("hours"), 100), "coords": coords, "admins": admins}
+    db.execute("INSERT OR REPLACE INTO settings(k,v) VALUES('contacts',?)", (json.dumps(data, ensure_ascii=False),))
+    db.commit()
+    return web.json_response({"ok": True})
+
+
 async def me(req):
     u = check_init((await req.json()).get("initData", ""))
     if not u:
@@ -652,10 +713,14 @@ async def main():
                     web.get("/api/info", info), web.get("/api/version", version), web.get("/api/status", status_api), web.post("/api/admin", admin_data), web.post("/api/admin/decide", admin_decide),
                     web.post("/api/me", me), web.post("/api/admin/price", admin_price),
                     web.post("/api/admin/walkin", admin_walkin), web.post("/api/admin/free", admin_free),
-                    web.get("/api/packages", packages), web.post("/api/admin/stats", admin_stats)])
+                    web.get("/api/packages", packages), web.post("/api/admin/stats", admin_stats), web.post("/api/admin/contacts", admin_contacts)])
     runner = web.AppRunner(app)
     await runner.setup()
     await web.TCPSite(runner, "0.0.0.0", PORT).start()
+    try:
+        await bot.delete_webhook(drop_pending_updates=False)
+    except Exception as e:
+        print("webhook o'chirilmadi:", e)
     try:
         INFO["bot"] = (await bot.get_me()).username
     except Exception as e:

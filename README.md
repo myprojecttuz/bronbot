@@ -34,6 +34,13 @@ Eski `club.db` bo'lsa, `status` ustuni avtomatik qo'shiladi.
 ## Klub ma'lumotlari ("Aloqa" bo'limi uchun, ixtiyoriy)
 Railway Variables ga qo'shing: `CLUB_ADDRESS`, `CLUB_PHONE`, `CLUB_HOURS`, `ADMIN_USERNAME` (@siz).
 
+Yoki botda admin sifatida Mini App → **Admin → Aloqa** bo'limidan to'ldiring: manzil, ish vaqti, **bir nechta admin** (ism, telefon, @username) va xarita koordinatasi
+(`41.311081, 69.240562` yoki Google xaritadagi to'liq havola; `maps.app.goo.gl` qisqa havolasi ishlamaydi). Mijozlar buni **Aloqa** bo'limida (xarita, qo'ng'iroq va Telegram tugmalari bilan) va `/support` da ko'radi.
+
+## Versiyani tekshirish
+Deploydan keyin `https://sizning-domen.uz/api/version` yoki botda `/status` ni oching. Hozirgi versiya: **v10**. Eski versiya chiqsa, yangi deploy ishga tushmagan: Railway → Deployments → Logs ni tekshiring.
+Kod Python 3.10+ da ishlaydi.
+
 ## Xususiyatlar va guruh bron
 `bot.py` dagi `ZONES[...]["specs"]` ro'yxatida har zona kompyuterlarining xususiyatlari turadi (Narxlar bo'limida va tanlashda ko'rinadi). Ularni haqiqiyiga almashtiring.
 Mijoz bir bronda 30 tagacha kompyuter va 30 daqiqadan 24 soatgacha istalgan vaqtni tanlay oladi.
