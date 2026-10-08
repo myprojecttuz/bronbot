@@ -50,6 +50,15 @@ Jadvallarda Row Level Security yoqiladi, shuning uchun telefon raqamlarga Supaba
 Bron qilinganda, tasdiqlanganda, rad etilganda mijozga chiroyli kartochka yuboriladi. Tasdiqlangan bron boshlanishigacha **har soatda** "N soat qoldi" xabari keladi
 (oxirgi `HOURLY_MAX_H` = 24 soat ichida; kechasi 23:00–08:00 ovozsiz), keyin 30 daqiqa oldin eslatma va boshlanish vaqtida xabar.
 
+## /start GIF
+`/start` xabari `welcome.gif` animatsiyasi bilan boradi (matn GIF ostida, pastida tugmalar). Fayl birinchi yuborishda Telegramga yuklanadi, keyin `file_id` saqlanadi.
+Boshqa GIF xohlasangiz: `welcome.gif` ni almashtiring yoki Railway Variables ga `WELCOME_GIF` (GIF havolasi yoki file_id) qo'shing.
+`python make_welcome_gif.py logo.png welcome.gif` bilan logotipdan yangi GIF yasash mumkin. GIF yuborilmasa, oddiy matnli xabar boradi.
+
+## Band holati xaritada
+Xaritada kompyuter **hozir** yoki **keyingi 24 soatda** bron qilingan bo'lsa «band» ko'rinadi (kutilayotgan bron sariq). Keyingi vaqtga qilingan bronda kompyuter ustida 🕒 belgisi chiqadi.
+Belgi bor kompyuterni boshqa bo'sh vaqt uchun baribir tanlash mumkin: ilova 2-qadamda vaqt to'qnashuvini tekshiradi. Zonadagi hamma kompyuter band bo'lsa, zona tugmasida «Band» yoziladi.
+
 ## Aksiyalar va reklama
 Admin sifatida Mini App → **Admin → Aksiya** bo'limidan aksiya qo'shasiz: sarlavha, matn, rasm havolasi (ixtiyoriy), tugma (Bron qilish / Paketlar / Zonalar / Aloqa / havola), tugash sanasi.
 - **Ilovada:** mijoz kirganda popup chiqadi (har aksiya 3 soatda bir marta), chekkadan sirpanib chiqadigan xabar vaqti-vaqti bilan eslatadi, yuqoridagi 🎁 belgi doim ochiq turadi.
@@ -63,7 +72,7 @@ Admin sifatida Mini App → **Admin → Aksiya** bo'limidan aksiya qo'shasiz: sa
 - Supabase'ga ulanib bo'lmasa, bot o'chib qolmaydi: vaqtincha SQLite bilan ishlaydi va adminga ogohlantirish yuboradi. `DATABASE_URL` ni to'g'rilab qayta deploy qiling.
 
 ## Versiyani tekshirish
-Deploydan keyin `https://sizning-domen.uz/api/version` yoki botda `/status` ni oching. Hozirgi versiya: **v14**. Eski versiya chiqsa, yangi deploy ishga tushmagan: Railway → Deployments → Logs ni tekshiring.
+Deploydan keyin `https://sizning-domen.uz/api/version` yoki botda `/status` ni oching. Hozirgi versiya: **v15**. Eski versiya chiqsa, yangi deploy ishga tushmagan: Railway → Deployments → Logs ni tekshiring.
 Kod Python 3.10+ da ishlaydi.
 
 ## Xususiyatlar va guruh bron

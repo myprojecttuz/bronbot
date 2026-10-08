@@ -6,7 +6,7 @@ from html import escape
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command, CommandStart
 from aiogram.exceptions import TelegramRetryAfter
-from aiogram.types import ErrorEvent, BotCommand, MenuButtonWebApp, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove, CallbackQuery, Message, WebAppInfo, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import FSInputFile, ErrorEvent, BotCommand, MenuButtonWebApp, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove, CallbackQuery, Message, WebAppInfo, InlineKeyboardMarkup, InlineKeyboardButton
 
 logging.basicConfig(level=logging.INFO)
 TOKEN = os.environ["BOT_TOKEN"]
@@ -360,8 +360,48 @@ async def answer_safe(m: Message, text, *markups):
     return None
 
 
+WELCOME_GIF = os.getenv("WELCOME_GIF", "").strip()  # ixtiyoriy: o'z GIF havolangiz yoki file_id
+GIF_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "welcome.gif")
+
+
+def gif_source():
+    """(manba, keshlash_belgisi). Fayl bir marta yuklanadi, keyin Telegram file_id si ishlatiladi."""
+    if WELCOME_GIF:
+        return WELCOME_GIF, None
+    if not os.path.exists(GIF_PATH):
+        return None, None
+    sig = str(os.path.getsize(GIF_PATH))  # fayl almashsa, yangidan yuklanadi
+    r = db.execute("SELECT v FROM settings WHERE k='welcome_gif'").fetchone()
+    if r and r[0].startswith(sig + "|"):
+        return r[0].split("|", 1)[1], None
+    return FSInputFile(GIF_PATH), sig
+
+
+async def send_welcome(m: Message, text, *markups):
+    """/start: GIF + matn (caption) + tugmalar. GIF yoki tugma xato bersa, oddiy matnli xabarga o'tadi, jim qolmaydi."""
+    src, sig = gif_source()
+    if src is not None:
+        for mk in markups:
+            try:
+                msg = await m.answer_animation(src, caption=text, parse_mode="HTML", reply_markup=mk() if callable(mk) else mk)
+                anim = msg.animation or msg.document
+                if sig and anim:
+                    db.execute("INSERT OR REPLACE INTO settings(k,v) VALUES('welcome_gif',?)", (f"{sig}|{anim.file_id}",))
+                    db.commit()
+                return msg
+            except TelegramRetryAfter:
+                raise
+            except Exception as e:
+                print("gif yuborilmadi:", getattr(mk, "__name__", type(mk).__name__), repr(e))
+                if not sig and not WELCOME_GIF:  # eskirgan file_id bo'lsa, keyingi safar qayta yuklaymiz
+                    db.execute("DELETE FROM settings WHERE k='welcome_gif'")
+                    db.commit()
+                    break
+    return await answer_safe(m, text, *markups)
+
+
 async def send_menu(m: Message):
-    await answer_safe(m, WELCOME, menu_markup, open_markup)
+    await send_welcome(m, WELCOME, menu_markup, open_markup)
 
 
 @dp.message(CommandStart())
@@ -369,7 +409,7 @@ async def start(m: Message):
     if not registered(m.from_user.id):
         kbd = ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="📱 Raqamni yuborish", request_contact=True)]],
                                   resize_keyboard=True, one_time_keyboard=True)
-        return await answer_safe(m, "🎮 <b>Arcade Games</b> ga xush kelibsiz!\n\nBron qilish uchun avval telefon raqamingizni tasdiqlang: pastdagi <b>«📱 Raqamni yuborish»</b> tugmasini bosing.\n\nBron <b>bepul</b>, to'lov faqat klubga kelganingizda.", kbd)
+        return await send_welcome(m, "🎮 <b>Arcade Games</b> ga xush kelibsiz!\n\nBron qilish uchun avval telefon raqamingizni tasdiqlang: pastdagi <b>«📱 Raqamni yuborish»</b> tugmasini bosing.\n\nBron <b>bepul</b>, to'lov faqat klubga kelganingizda.", kbd)
     await send_menu(m)
 
 
@@ -588,7 +628,7 @@ async def status_api(_):
     return web.json_response([{"pc": r[0], "zone": r[1], "start": r[2], "end": r[3], "status": r[4], "walkin": r[5] == 0} for r in rows])
 
 
-APP_VERSION = "v14"
+APP_VERSION = "v15"
 
 
 async def version(_):
