@@ -1,17 +1,38 @@
-import asyncio, os, re, json, hmac, hashlib, sqlite3, uuid, logging
-from urllib.parse import parse_qsl
+import asyncio, os, re, json, hmac, hashlib, sqlite3, uuid, logging, time, traceback
+from urllib.parse import parse_qsl, urlsplit, urlunsplit, urlencode
 from datetime import datetime, timedelta, timezone
 from aiohttp import web
 from html import escape
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command, CommandStart
 from aiogram.exceptions import TelegramRetryAfter
-from aiogram.types import BotCommand, MenuButtonWebApp, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove, CallbackQuery, Message, WebAppInfo, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import ErrorEvent, BotCommand, MenuButtonWebApp, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove, CallbackQuery, Message, WebAppInfo, InlineKeyboardMarkup, InlineKeyboardButton
 
 logging.basicConfig(level=logging.INFO)
 TOKEN = os.environ["BOT_TOKEN"]
 ADMIN_ID = int(os.environ["ADMIN_ID"])
-WEBAPP_URL = os.environ["WEBAPP_URL"]
+WEBAPP_URL_RAW = os.environ["WEBAPP_URL"]
+
+
+def norm_url(u):
+    """Telegram tugma uchun faqat https:// manzil qabul qiladi: bo'sh joy, qo'shtirnoq, http:// va sxemasiz manzilni to'g'rilaymiz."""
+    u = (u or "").strip().strip("\"'").strip()
+    if u and not re.match(r"^https?://", u, re.I):
+        u = "https://" + u.lstrip("/")
+    if u.lower().startswith("http://") and not re.match(r"http://(localhost|127\.)", u, re.I):
+        u = "https://" + u[7:]
+    return u.rstrip("/")
+
+
+WEBAPP_URL = norm_url(WEBAPP_URL_RAW)
+
+
+def app_url(tab=None):
+    p = urlsplit(WEBAPP_URL)
+    q = parse_qsl(p.query) + ([("tab", tab)] if tab else [])
+    return urlunsplit((p.scheme, p.netloc, p.path or "/", urlencode(q), ""))
+
+
 PORT = int(os.getenv("PORT", 8080))
 TZ = timezone(timedelta(hours=5))  # Toshkent: UTC+5 (yozgi/qishki vaqt yo'q), server qayerda bo'lmasin
 
@@ -127,7 +148,17 @@ class PgDB:
         pass
 
 
-db = PgDB(DATABASE_URL) if PG else sqlite3.connect(os.getenv("DB_PATH", "club.db"), check_same_thread=False)
+DB_ERROR = ""
+db = None
+if PG:
+    try:
+        db = PgDB(DATABASE_URL)
+    except Exception as e:  # ulanib bo'lmasa, bot butunlay o'chib qolmasin
+        DB_ERROR = f"{type(e).__name__}: {e}"[:300]
+        PG = False
+        print("⚠️ Supabase'ga ulanib bo'lmadi, vaqtincha SQLite ishlatilmoqda:", DB_ERROR)
+if db is None:
+    db = sqlite3.connect(os.getenv("DB_PATH", "club.db"), check_same_thread=False)
 print("Baza:", "Supabase (Postgres)" if PG else "SQLite")
 db.execute("""CREATE TABLE IF NOT EXISTS bookings(
     id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, name TEXT,
@@ -305,19 +336,32 @@ WELCOME = (
 
 def menu_markup():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🎮 Bron qilish", web_app=WebAppInfo(url=WEBAPP_URL))],
+        [InlineKeyboardButton(text="🎮 Bron qilish", web_app=WebAppInfo(url=app_url()))],
         [InlineKeyboardButton(text="📋 Mening bronlarim", callback_data="my"),
-         InlineKeyboardButton(text="🖥 Zonalar", web_app=WebAppInfo(url=WEBAPP_URL + "?tab=prices"))],
+         InlineKeyboardButton(text="🖥 Zonalar", web_app=WebAppInfo(url=app_url("prices")))],
         [InlineKeyboardButton(text="🎁 Aksiyalar", callback_data="promos"),
          InlineKeyboardButton(text="💬 Yordam", callback_data="support")]])
 
 
 def open_markup():
-    return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🎮 Bron qilish", web_app=WebAppInfo(url=WEBAPP_URL))]])
+    return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🎮 Bron qilish", web_app=WebAppInfo(url=app_url()))]])
+
+
+async def answer_safe(m: Message, text, *markups):
+    """Tugmalar bilan yuboradi. Telegram tugmani rad etsa, soddaroq variantga o'tadi; oxirgi chora: matn + havola. Jim qolmaydi."""
+    for mk in (*markups, None):
+        try:
+            body = text if mk is not None else text + f"\n\n🔗 {escape(WEBAPP_URL)}"
+            return await m.answer(body, parse_mode="HTML", reply_markup=mk() if callable(mk) else mk)
+        except TelegramRetryAfter:
+            raise
+        except Exception as e:
+            print("xabar yuborilmadi:", getattr(mk, "__name__", type(mk).__name__), repr(e))
+    return None
 
 
 async def send_menu(m: Message):
-    await m.answer(WELCOME, parse_mode="HTML", reply_markup=menu_markup())
+    await answer_safe(m, WELCOME, menu_markup, open_markup)
 
 
 @dp.message(CommandStart())
@@ -325,8 +369,7 @@ async def start(m: Message):
     if not registered(m.from_user.id):
         kbd = ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="📱 Raqamni yuborish", request_contact=True)]],
                                   resize_keyboard=True, one_time_keyboard=True)
-        return await m.answer("🎮 <b>Arcade Games</b> ga xush kelibsiz!\n\nBron qilish uchun avval telefon raqamingizni tasdiqlang: pastdagi <b>«📱 Raqamni yuborish»</b> tugmasini bosing.\n\nBron <b>bepul</b>, to'lov faqat klubga kelganingizda.",
-                              parse_mode="HTML", reply_markup=kbd)
+        return await answer_safe(m, "🎮 <b>Arcade Games</b> ga xush kelibsiz!\n\nBron qilish uchun avval telefon raqamingizni tasdiqlang: pastdagi <b>«📱 Raqamni yuborish»</b> tugmasini bosing.\n\nBron <b>bepul</b>, to'lov faqat klubga kelganingizda.", kbd)
     await send_menu(m)
 
 
@@ -345,12 +388,7 @@ async def got_contact(m: Message):
                (m.from_user.id, phone, m.from_user.full_name, now_iso()))
     db.commit()
     # 1) eng muhimi: tugmali xabar (tugma bosilsa web app ochiladi)
-    for mk in (menu_markup, open_markup):
-        try:
-            await m.answer(REG_OK, parse_mode="HTML", reply_markup=mk())
-            break
-        except Exception as e:
-            print("tugmali xabar yuborilmadi:", mk.__name__, repr(e))
+    await answer_safe(m, REG_OK, menu_markup, open_markup)
     # 2) "Raqamni yuborish" tugmasini yig'ishtirish (xabar darrov o'chadi)
     try:
         tmp = await m.answer("✅", reply_markup=ReplyKeyboardRemove())
@@ -387,6 +425,44 @@ async def cancel_cb(c: CallbackQuery):
     if not g:
         return await c.answer("Bekor qilib bo'lmaydi", show_alert=True)
     await c.message.edit_text(gtext(g))
+
+
+_last_err = [0.0]
+
+
+@dp.error()
+async def on_error(ev: ErrorEvent):
+    """Kutilmagan xato bo'lsa: logga yozadi, mijozga jim qolmasdan javob beradi, adminga (10 daqiqada bir marta) xabar beradi."""
+    e = ev.exception
+    print("XATO:", "".join(traceback.format_exception(type(e), e, e.__traceback__))[-1500:])
+    u = ev.update
+    chat = u.message.chat.id if u.message else (u.callback_query.message.chat.id if u.callback_query and u.callback_query.message else None)
+    if chat:
+        try:
+            await bot.send_message(chat, "⚠️ Kechirasiz, xatolik yuz berdi. Birozdan keyin qayta urinib ko'ring.")
+        except Exception:
+            pass
+    if time.time() - _last_err[0] > 600:
+        _last_err[0] = time.time()
+        try:
+            await bot.send_message(ADMIN_ID, f"⚠️ Bot xatosi: {type(e).__name__}: {str(e)[:300]}")
+        except Exception:
+            pass
+    return True
+
+
+async def startup_notices():
+    msgs = []
+    if DB_ERROR:
+        msgs.append("⚠️ Supabase'ga ulanib bo'lmadi, bot vaqtincha SQLite bilan ishlayapti (ma'lumotlar deploydan keyin o'chishi mumkin).\n"
+                    f"{DB_ERROR}\nRailway'da DATABASE_URL ga Supabase'dagi «Session pooler» havolasini qo'ying.")
+    if WEBAPP_URL != WEBAPP_URL_RAW.strip():
+        msgs.append(f"ℹ️ WEBAPP_URL avtomatik tuzatildi: {WEBAPP_URL}\nRailway Variables da ham shu ko'rinishda (https://...) yozing.")
+    for t in msgs:
+        try:
+            await bot.send_message(ADMIN_ID, t)
+        except Exception as e:
+            print("admin ogohlantirishi yuborilmadi:", repr(e))
 
 
 # ---------- ADMIN ----------
@@ -512,7 +588,7 @@ async def status_api(_):
     return web.json_response([{"pc": r[0], "zone": r[1], "start": r[2], "end": r[3], "status": r[4], "walkin": r[5] == 0} for r in rows])
 
 
-APP_VERSION = "v13"
+APP_VERSION = "v14"
 
 
 async def version(_):
@@ -862,7 +938,7 @@ def promo_markup(p):
     if act == "url" and p["url"]:
         return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=label, url=p["url"])]])
     if act in ("book", "packages", "prices", "info"):
-        url = WEBAPP_URL if act == "book" else f"{WEBAPP_URL}?tab={act}"
+        url = app_url(None if act == "book" else act)
         return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=label, web_app=WebAppInfo(url=url))]])
     return None
 
@@ -1057,9 +1133,11 @@ async def main():
                                    BotCommand(command="my", description="Mening bronlarim"),
                                    BotCommand(command="promo", description="Aksiyalar"),
                                    BotCommand(command="support", description="Yordam")])
-        await bot.set_chat_menu_button(menu_button=MenuButtonWebApp(text="🎮 Bron", web_app=WebAppInfo(url=WEBAPP_URL)))
+        await bot.set_chat_menu_button(menu_button=MenuButtonWebApp(text="🎮 Bron", web_app=WebAppInfo(url=app_url())))
     except Exception as e:
         print("menyu sozlanmadi:", e)
+    await startup_notices()
+    print("Bot ishga tushdi. WEBAPP_URL =", WEBAPP_URL, "| versiya", APP_VERSION)
     asyncio.create_task(reminder_loop())
     asyncio.create_task(promo_loop())
     await dp.start_polling(bot)
